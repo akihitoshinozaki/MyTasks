@@ -290,11 +290,21 @@ class ToDoApp:
         except Exception:
             self._set_sync_status("✕ Sync failed", DELETE_COLOR)
 
+    def _due_date_str(self, task):
+        """Return RFC 3339 due date string from task's created_date, or None."""
+        d = task.get("created_date")
+        if d:
+            return f"{d}T00:00:00.000Z"
+        return None
+
     def _push_task_to_google(self, task):
         try:
+            body = {"title": task["text"], "status": "needsAction"}
+            due = self._due_date_str(task)
+            if due:
+                body["due"] = due
             result = self.service.tasks().insert(
-                tasklist=self.tasklist_id,
-                body={"title": task["text"], "status": "needsAction"}
+                tasklist=self.tasklist_id, body=body
             ).execute()
             task["google_id"] = result["id"]
         except Exception:
@@ -305,10 +315,13 @@ class ToDoApp:
             gid = task.get("google_id")
             if not gid:
                 return
+            body = {"id": gid, "title": task["text"],
+                    "status": "completed" if task["done"] else "needsAction"}
+            due = self._due_date_str(task)
+            if due:
+                body["due"] = due
             self.service.tasks().update(
-                tasklist=self.tasklist_id, task=gid,
-                body={"id": gid, "title": task["text"],
-                      "status": "completed" if task["done"] else "needsAction"}
+                tasklist=self.tasklist_id, task=gid, body=body
             ).execute()
         except Exception:
             pass
