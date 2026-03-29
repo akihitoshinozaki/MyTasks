@@ -183,15 +183,6 @@ class ToDoApp:
         )
         self.steps_btn.pack(side="left", padx=(0, 8))
 
-        # Clear completed (Done tab only)
-        self.clear_btn = tk.Button(
-            self.root, text="Clear completed", bg=BUTTON_COLOR, fg=TEXT_COLOR,
-            relief="flat", font=("Helvetica", 9), cursor="hand2",
-            command=self._clear_completed, pady=4, bd=0,
-            activebackground=BUTTON_COLOR
-        )
-        self.clear_btn.pack(fill="x", padx=8, pady=6)
-
         self._switch_tab("Today")
 
     def _position_window(self):
