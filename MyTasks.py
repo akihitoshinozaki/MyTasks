@@ -707,6 +707,9 @@ class ToDoApp:
     # ── Scroll ────────────────────────────────────────────────────────────────
 
     def _on_scroll(self, event):
+        top, bottom = self.canvas.yview()
+        if top <= 0.0 and bottom >= 1.0:
+            return
         if abs(event.delta) >= 120:
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         else:
