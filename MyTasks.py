@@ -378,6 +378,8 @@ class ToDoApp:
     def _move_to_today(self, task):
         task["created_date"] = str(date.today())
         self._refresh_tasks()
+        if self.service:
+            threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
 
     def _cycle_task_steps(self, task):
         new_steps = (task.get("steps", 1) % 3) + 1
