@@ -222,10 +222,8 @@ class ToDoApp:
         today = str(date.today())
         if self.active_tab == "Today":
             tasks = [t for t in self.tasks if t.get("created_date") == today]
-        elif self.active_tab == "Incomplete":
-            tasks = [t for t in self.tasks if not t.get("done")]
         else:
-            tasks = [t for t in self.tasks if t.get("done")]
+            tasks = [t for t in self.tasks if not t.get("done")]
         return sorted(tasks, key=lambda t: t.get("done", False))
 
     # ── Google ────────────────────────────────────────────────────────────────
