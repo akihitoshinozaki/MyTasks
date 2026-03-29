@@ -215,10 +215,6 @@ class ToDoApp:
                 btn.config(bg=TAB_ACTIVE_BG, fg=ACCENT_COLOR, font=("Helvetica", 10, "bold"))
             else:
                 btn.config(bg=TAB_BG, fg=DONE_COLOR, font=("Helvetica", 10))
-        if tab == "Done":
-            self.clear_btn.pack(fill="x", padx=8, pady=6)
-        else:
-            self.clear_btn.pack_forget()
         self.canvas.yview_moveto(0)
         self._refresh_tasks()
 
