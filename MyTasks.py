@@ -32,7 +32,7 @@ STEP_EMPTY    = "#c0a07a"
 STEP_FILL     = "#9b5e2e"
 WINDOW_WIDTH  = 300
 
-TABS = ["Today", "Incomplete", "Done"]
+TABS = ["Today", "Incomplete"]
 
 
 # ── Google Auth ──────────────────────────────────────────────────────────────
