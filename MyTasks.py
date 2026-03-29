@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from datetime import date
+from pynput import keyboard as pynput_kb
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -184,6 +185,24 @@ class ToDoApp:
         self.steps_btn.pack(side="left", padx=(0, 8))
 
         self._switch_tab("Today")
+        self._setup_global_hotkey()
+
+    def _setup_global_hotkey(self):
+        def on_activate():
+            self.root.after(0, self._toggle_window)
+
+        listener = pynput_kb.GlobalHotKeys({"<cmd>+p": on_activate})
+        listener.daemon = True
+        listener.start()
+
+    def _toggle_window(self):
+        if self.root.state() == "withdrawn":
+            self.root.deiconify()
+            self.root.attributes("-topmost", True)
+            self.root.lift()
+            self.root.focus_force()
+        else:
+            self.root.withdraw()
 
     def _position_window(self):
         self.root.update_idletasks()
