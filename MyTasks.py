@@ -3,8 +3,10 @@ from tkinter import font, messagebox
 import os
 import threading
 import time
-from datetime import date
+import calendar as _cal
+from datetime import date, timedelta
 from pynput import keyboard as pynput_kb
+from AppKit import NSApp, NSWindowCollectionBehaviorMoveToActiveSpace, NSWindowCollectionBehaviorFullScreenAuxiliary, NSStatusWindowLevel
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -28,9 +30,10 @@ BUTTON_COLOR  = "#c9a97c"
 DELETE_COLOR  = "#b84a3a"
 SYNC_COLOR    = "#4e7a42"
 TAB_ACTIVE_BG = "#c9a97c"
-TAB_BG        = "#f5e6d3"
 STEP_EMPTY    = "#c0a07a"
 STEP_FILL     = "#9b5e2e"
+UNTIL_COLOR   = "#5e7a9b"
+TAB_BG        = "#f5e6d3"
 WINDOW_WIDTH  = 300
 
 TABS = ["Today", "Incomplete"]
@@ -86,7 +89,9 @@ class ToDoApp:
         self.tasks        = []
         self.active_tab   = "Today"
         self._stop_sync   = False
-        self.new_task_steps = 1   # controlled by the steps toggle
+        self.new_task_steps   = 1
+        self.pending_until_date = None
+        self._cal_popup   = None
 
         self._task_rows       = []
         self._drag_task       = None
@@ -161,7 +166,7 @@ class ToDoApp:
         self.entry = tk.Entry(
             input_frame, bg=ENTRY_BG, fg=TEXT_COLOR,
             insertbackground=TEXT_COLOR, relief="flat",
-            font=("Helvetica", 11), width=17
+            font=("Helvetica", 11), width=12
         )
         self.entry.pack(side="left", padx=(8, 4), ipady=5)
         self.entry.bind("<Return>", self._add_task)
@@ -173,6 +178,15 @@ class ToDoApp:
             cursor="hand2", command=self._add_task,
             padx=6, pady=5, bd=0, activebackground=ACCENT_COLOR
         ).pack(side="left", padx=(0, 4))
+
+        # Until button — opens calendar date picker
+        self.until_btn = tk.Button(
+            input_frame, text="Until", bg=BUTTON_COLOR, fg=DONE_COLOR,
+            relief="flat", font=("Helvetica", 10),
+            cursor="hand2", command=self._show_calendar_picker,
+            padx=5, pady=5, bd=0, activebackground=BUTTON_COLOR
+        )
+        self.until_btn.pack(side="left", padx=(0, 4))
 
         # Steps toggle button — cycles 1× → 2× → 3× → 1×
         self.steps_btn = tk.Button(
@@ -186,23 +200,45 @@ class ToDoApp:
 
         self._switch_tab("Today")
         self._setup_global_hotkey()
+        self.root.after(100, self._set_all_spaces)
 
     def _setup_global_hotkey(self):
-        def on_activate():
-            self.root.after(0, self._toggle_window)
+        cmd_held = {"val": False}
 
-        listener = pynput_kb.GlobalHotKeys({"<cmd>+p": on_activate})
+        def on_press(key):
+            if key in (pynput_kb.Key.cmd, pynput_kb.Key.cmd_l, pynput_kb.Key.cmd_r):
+                cmd_held["val"] = True
+            try:
+                if cmd_held["val"] and hasattr(key, "char") and key.char == "'":
+                    self.root.after(0, self._toggle_window)
+            except AttributeError:
+                pass
+
+        def on_release(key):
+            if key in (pynput_kb.Key.cmd, pynput_kb.Key.cmd_l, pynput_kb.Key.cmd_r):
+                cmd_held["val"] = False
+
+        listener = pynput_kb.Listener(on_press=on_press, on_release=on_release)
         listener.daemon = True
         listener.start()
 
+    def _set_all_spaces(self):
+        for window in NSApp.windows():
+            window.setLevel_(NSStatusWindowLevel)
+            window.setCollectionBehavior_(
+                NSWindowCollectionBehaviorMoveToActiveSpace
+                | NSWindowCollectionBehaviorFullScreenAuxiliary
+            )
+
     def _toggle_window(self):
-        if self.root.state() == "withdrawn":
-            self.root.deiconify()
-            self.root.attributes("-topmost", True)
-            self.root.lift()
-            self.root.focus_force()
+        if self.root.attributes("-alpha") == 0:
+            self.root.attributes("-alpha", 1.0)
+            for window in NSApp.windows():
+                window.setLevel_(NSStatusWindowLevel)
+                window.orderFrontRegardless()
+            NSApp.activateIgnoringOtherApps_(True)
         else:
-            self.root.withdraw()
+            self.root.attributes("-alpha", 0)
 
     def _position_window(self):
         self.root.update_idletasks()
@@ -225,6 +261,140 @@ class ToDoApp:
             bg=TAB_ACTIVE_BG if active else BUTTON_COLOR
         )
 
+    # ── Calendar picker ───────────────────────────────────────────────────────
+
+    def _show_calendar_picker(self):
+        if self._cal_popup and self._cal_popup.winfo_exists():
+            self._cal_popup.destroy()
+            self._cal_popup = None
+            return
+
+        popup = tk.Toplevel(self.root)
+        popup.title("")
+        popup.resizable(False, False)
+        popup.configure(bg=HEADER_COLOR)
+        popup.attributes("-topmost", True)
+        self._cal_popup = popup
+
+        today = date.today()
+        view = {"year": today.year, "month": today.month}
+
+        def render():
+            for w in popup.winfo_children():
+                w.destroy()
+
+            year, month = view["year"], view["month"]
+            month_name = date(year, month, 1).strftime("%B %Y")
+
+            # Navigation header
+            nav = tk.Frame(popup, bg=ACCENT_COLOR)
+            nav.pack(fill="x")
+            prev_lbl = tk.Label(nav, text="  ‹  ", bg=ACCENT_COLOR, fg=BG_COLOR,
+                                font=("Helvetica", 14, "bold"), cursor="hand2", pady=6)
+            prev_lbl.pack(side="left")
+            prev_lbl.bind("<Button-1>", lambda e: go_prev())
+            tk.Label(nav, text=month_name, bg=ACCENT_COLOR, fg=BG_COLOR,
+                     font=("Helvetica", 12, "bold"), pady=6).pack(side="left", expand=True)
+            next_lbl = tk.Label(nav, text="  ›  ", bg=ACCENT_COLOR, fg=BG_COLOR,
+                                font=("Helvetica", 14, "bold"), cursor="hand2", pady=6)
+            next_lbl.pack(side="right")
+            next_lbl.bind("<Button-1>", lambda e: go_next())
+
+            # Day-of-week headers
+            dow_row = tk.Frame(popup, bg=HEADER_COLOR)
+            dow_row.pack(fill="x", padx=8, pady=(8, 2))
+            for d in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]:
+                tk.Label(dow_row, text=d, bg=HEADER_COLOR, fg=DONE_COLOR,
+                         font=("Helvetica", 10), width=4, anchor="center").pack(side="left")
+
+            # Calendar grid
+            grid = tk.Frame(popup, bg=HEADER_COLOR)
+            grid.pack(padx=8, pady=(0, 4))
+            for week in _cal.monthcalendar(year, month):
+                week_row = tk.Frame(grid, bg=HEADER_COLOR)
+                week_row.pack()
+                for day in week:
+                    if day == 0:
+                        tk.Label(week_row, text="", width=4, bg=HEADER_COLOR,
+                                 font=("Helvetica", 11)).pack(side="left")
+                    else:
+                        d_obj = date(year, month, day)
+                        d_str = str(d_obj)
+                        is_selected = d_str == self.pending_until_date
+                        is_today    = d_obj == today
+                        is_past     = d_obj < today
+
+                        if is_selected:
+                            bg, fg, weight = ACCENT_COLOR, BG_COLOR, "bold"
+                        elif is_today:
+                            bg, fg, weight = BUTTON_COLOR, TEXT_COLOR, "bold"
+                        elif is_past:
+                            bg, fg, weight = HEADER_COLOR, STEP_EMPTY, "normal"
+                        else:
+                            bg, fg, weight = HEADER_COLOR, TEXT_COLOR, "normal"
+
+                        day_lbl = tk.Label(
+                            week_row, text=str(day), width=4,
+                            bg=bg, fg=fg,
+                            font=("Helvetica", 11, weight),
+                            cursor="hand2" if not is_past else "arrow",
+                            anchor="center", pady=4
+                        )
+                        day_lbl.pack(side="left")
+                        if not is_past:
+                            day_lbl.bind("<Button-1>", lambda e, ds=d_str: select_date(ds))
+
+            # Clear button
+            clear_row = tk.Frame(popup, bg=HEADER_COLOR)
+            clear_row.pack(fill="x", padx=8, pady=(0, 8))
+            clear_lbl = tk.Label(clear_row, text="Clear date", bg=HEADER_COLOR,
+                                 fg=DELETE_COLOR, font=("Helvetica", 9), cursor="hand2")
+            clear_lbl.pack(side="right")
+            clear_lbl.bind("<Button-1>", lambda e: select_date(None))
+
+            # Position above the Until button after layout is computed
+            popup.update_idletasks()
+            bx = self.until_btn.winfo_rootx()
+            by = self.until_btn.winfo_rooty()
+            pw = popup.winfo_width()
+            ph = popup.winfo_height()
+            x  = bx - pw + self.until_btn.winfo_width()
+            y  = by - ph - 4
+            popup.geometry(f"+{x}+{y}")
+
+        def go_prev():
+            if view["month"] == 1:
+                view["month"], view["year"] = 12, view["year"] - 1
+            else:
+                view["month"] -= 1
+            render()
+
+        def go_next():
+            if view["month"] == 12:
+                view["month"], view["year"] = 1, view["year"] + 1
+            else:
+                view["month"] += 1
+            render()
+
+        def select_date(d_str):
+            self.pending_until_date = d_str
+            if d_str:
+                d = date.fromisoformat(d_str)
+                self.until_btn.config(
+                    text=d.strftime("%b %-d"),
+                    fg=BG_COLOR, bg=UNTIL_COLOR
+                )
+            else:
+                self.until_btn.config(text="Until", fg=DONE_COLOR, bg=BUTTON_COLOR)
+            popup.destroy()
+            self._cal_popup = None
+
+        render()
+        # Elevate popup above the main window (which sits at NSStatusWindowLevel)
+        popup.update_idletasks()
+        for window in NSApp.windows():
+            window.setLevel_(NSStatusWindowLevel + 1)
+
     # ── Tabs ─────────────────────────────────────────────────────────────────
 
     def _switch_tab(self, tab):
@@ -237,13 +407,35 @@ class ToDoApp:
         self.canvas.yview_moveto(0)
         self._refresh_tasks()
 
+    def _task_done_today(self, task):
+        """Return whether the task is considered done for today."""
+        if task.get("until_date"):
+            today = str(date.today())
+            steps = task.get("steps", 1)
+            return task.get("daily_done", {}).get(today, 0) >= steps
+        return task.get("done", False)
+
     def _visible_tasks(self):
         today = str(date.today())
         if self.active_tab == "Today":
-            tasks = [t for t in self.tasks if t.get("created_date") == today]
-        else:
-            tasks = [t for t in self.tasks if not t.get("done")]
-        return sorted(tasks, key=lambda t: t.get("done", False))
+            tasks = []
+            for t in self.tasks:
+                if t.get("until_date"):
+                    if today <= t["until_date"]:
+                        tasks.append(t)
+                else:
+                    if t.get("created_date") == today:
+                        tasks.append(t)
+        else:  # Incomplete
+            tasks = []
+            for t in self.tasks:
+                if t.get("until_date"):
+                    if today <= t["until_date"] and not self._task_done_today(t):
+                        tasks.append(t)
+                else:
+                    if not t.get("done"):
+                        tasks.append(t)
+        return sorted(tasks, key=self._task_done_today)
 
     # ── Google ────────────────────────────────────────────────────────────────
 
@@ -278,14 +470,20 @@ class ToDoApp:
                 if gid and gid in google_map:
                     gt = google_map[gid]
                     task["text"] = gt.get("title", task["text"])
-                    g_done = gt.get("status") == "completed"
-                    # If Google marked it done but we have steps, complete all steps
-                    if g_done and not task.get("done"):
-                        task["steps_done"] = task.get("steps", 1)
-                        task["done"] = True
-                    elif not g_done and task.get("done"):
-                        task["steps_done"] = 0
-                        task["done"] = False
+                    # Parse until_date from notes if present
+                    notes = gt.get("notes", "")
+                    if notes.startswith("[until:") and len(notes) >= 17:
+                        task["until_date"] = notes[7:17]
+                        task.setdefault("daily_done", {})
+                    # Only sync done state for non-recurring tasks
+                    if not task.get("until_date"):
+                        g_done = gt.get("status") == "completed"
+                        if g_done and not task.get("done"):
+                            task["steps_done"] = task.get("steps", 1)
+                            task["done"] = True
+                        elif not g_done and task.get("done"):
+                            task["steps_done"] = 0
+                            task["done"] = False
                     new_tasks.append(task)
                 elif not gid:
                     new_tasks.append(task)
@@ -293,15 +491,25 @@ class ToDoApp:
             for gt in google_tasks:
                 gid = gt.get("id")
                 if gid and gid not in existing_ids and gt.get("title"):
+                    notes = gt.get("notes", "")
+                    until_date = None
+                    if notes.startswith("[until:") and len(notes) >= 17:
+                        until_date = notes[7:17]
                     g_date = gt.get("updated", "")[:10]
-                    new_tasks.append({
+                    entry = {
                         "text": gt["title"],
                         "done": gt.get("status") == "completed",
                         "google_id": gid,
                         "created_date": g_date,
                         "steps": 1,
                         "steps_done": 1 if gt.get("status") == "completed" else 0
-                    })
+                    }
+                    if until_date:
+                        entry["until_date"] = until_date
+                        entry["daily_done"] = {}
+                        entry["done"] = False
+                        entry["steps_done"] = 0
+                    new_tasks.append(entry)
 
             self.tasks = new_tasks
             self.root.after(0, self._refresh_tasks)
@@ -310,11 +518,8 @@ class ToDoApp:
             self._set_sync_status("✕ Sync failed", DELETE_COLOR)
 
     def _due_date_str(self, task):
-        """Return RFC 3339 due date string from task's created_date, or None."""
-        d = task.get("created_date")
-        if d:
-            return f"{d}T00:00:00.000Z"
-        return None
+        d = task.get("until_date") or task.get("created_date")
+        return f"{d}T00:00:00.000Z" if d else None
 
     def _push_task_to_google(self, task):
         try:
@@ -322,6 +527,8 @@ class ToDoApp:
             due = self._due_date_str(task)
             if due:
                 body["due"] = due
+            if task.get("until_date"):
+                body["notes"] = f"[until:{task['until_date']}]"
             result = self.service.tasks().insert(
                 tasklist=self.tasklist_id, body=body
             ).execute()
@@ -334,11 +541,17 @@ class ToDoApp:
             gid = task.get("google_id")
             if not gid:
                 return
-            body = {"id": gid, "title": task["text"],
-                    "status": "completed" if task["done"] else "needsAction"}
+            # Multi-day tasks stay as needsAction in Google (completion is daily/local)
+            if task.get("until_date"):
+                status = "needsAction"
+            else:
+                status = "completed" if task["done"] else "needsAction"
+            body = {"id": gid, "title": task["text"], "status": status}
             due = self._due_date_str(task)
             if due:
                 body["due"] = due
+            if task.get("until_date"):
+                body["notes"] = f"[until:{task['until_date']}]"
             self.service.tasks().update(
                 tasklist=self.tasklist_id, task=gid, body=body
             ).execute()
@@ -368,9 +581,14 @@ class ToDoApp:
             "steps": steps,
             "steps_done": 0
         }
+        if self.pending_until_date:
+            task["until_date"] = self.pending_until_date
+            task["daily_done"] = {}
+            self.pending_until_date = None
+            self.until_btn.config(text="Until", fg=DONE_COLOR, bg=BUTTON_COLOR)
+
         self.tasks.append(task)
         self.entry.delete(0, "end")
-        # Reset steps toggle back to 1×
         self.new_task_steps = 1
         self.steps_btn.config(text="1×", fg=DONE_COLOR, bg=BUTTON_COLOR)
         self._switch_tab("Today")
@@ -378,18 +596,25 @@ class ToDoApp:
             threading.Thread(target=self._push_task_to_google, args=(task,), daemon=True).start()
 
     def _advance_step(self, task):
-        """Click on the progress indicator — advance one step, or reset if done."""
-        steps = task.get("steps", 1)
-        done  = task.get("done", False)
-        if done:
-            # Reset
-            task["steps_done"] = 0
-            task["done"] = False
+        if task.get("until_date"):
+            today = str(date.today())
+            daily = task.setdefault("daily_done", {})
+            steps = task.get("steps", 1)
+            current = daily.get(today, 0)
+            if current >= steps:
+                daily[today] = 0  # reset for today
+            else:
+                daily[today] = current + 1
         else:
-            task["steps_done"] = task.get("steps_done", 0) + 1
-            if task["steps_done"] >= steps:
-                task["steps_done"] = steps
-                task["done"] = True
+            steps = task.get("steps", 1)
+            if task.get("done"):
+                task["steps_done"] = 0
+                task["done"] = False
+            else:
+                task["steps_done"] = task.get("steps_done", 0) + 1
+                if task["steps_done"] >= steps:
+                    task["steps_done"] = steps
+                    task["done"] = True
         self._refresh_tasks()
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
@@ -403,8 +628,14 @@ class ToDoApp:
     def _cycle_task_steps(self, task):
         new_steps = (task.get("steps", 1) % 3) + 1
         task["steps"] = new_steps
-        task["steps_done"] = min(task.get("steps_done", 0), new_steps)
-        task["done"] = task["steps_done"] >= new_steps
+        if task.get("until_date"):
+            today = str(date.today())
+            task.setdefault("daily_done", {})[today] = min(
+                task["daily_done"].get(today, 0), new_steps
+            )
+        else:
+            task["steps_done"] = min(task.get("steps_done", 0), new_steps)
+            task["done"] = task["steps_done"] >= new_steps
         self._refresh_tasks()
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
@@ -427,7 +658,6 @@ class ToDoApp:
                     threading.Thread(target=self._delete_task_on_google, args=(gid,), daemon=True).start()
 
     def _start_edit(self, task, row, text_lbl):
-        """Replace the text label with an inline entry for editing."""
         text_lbl.pack_forget()
         edit_entry = tk.Entry(
             row, bg=ENTRY_BG, fg=TEXT_COLOR,
@@ -446,8 +676,7 @@ class ToDoApp:
                 if self.service:
                     threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
             edit_entry.destroy()
-            # Restore label with updated text
-            done = task.get("done", False)
+            done = self._task_done_today(task)
             text_lbl.config(
                 text=task["text"],
                 fg=DONE_COLOR if done else TEXT_COLOR,
@@ -473,7 +702,7 @@ class ToDoApp:
             tgt = self._drag_target_idx if self._drag_target_idx is not None else self._drag_source_idx
             display = [t for t in visible if t is not drag_task]
             tgt = max(0, min(tgt, len(display)))
-            display.insert(tgt, None)  # None = placeholder slot
+            display.insert(tgt, None)
             for item in display:
                 if item is None:
                     self._make_lifted_task_row(drag_task)
@@ -496,10 +725,28 @@ class ToDoApp:
             for task in visible:
                 self._make_task_row(task)
 
+    def _days_left_text(self, until_date_str):
+        until = date.fromisoformat(until_date_str)
+        delta = (until - date.today()).days
+        if delta == 0:
+            return "last day"
+        elif delta == 1:
+            return "1 day left"
+        else:
+            return f"{delta} days left"
+
     def _make_task_row(self, task):
-        steps      = task.get("steps", 1)
-        steps_done = task.get("steps_done", 0)
-        done       = task.get("done", False)
+        is_recurring = bool(task.get("until_date"))
+        today_str    = str(date.today())
+
+        if is_recurring:
+            steps      = task.get("steps", 1)
+            steps_done = task.get("daily_done", {}).get(today_str, 0)
+            done       = steps_done >= steps
+        else:
+            steps      = task.get("steps", 1)
+            steps_done = task.get("steps_done", 0)
+            done       = task.get("done", False)
 
         row = tk.Frame(self.task_frame, bg=BG_COLOR, pady=4)
         row.pack(fill="x", padx=8)
@@ -514,7 +761,7 @@ class ToDoApp:
         drag_handle.bind("<ButtonPress-1>", lambda e, t=task: self._drag_start(e, t))
         drag_handle.bind("<MouseWheel>", self._on_scroll)
 
-        # ── Progress indicator (left, clickable) ─────────────────────────────
+        # ── Progress indicator ────────────────────────────────────────────────
         prog_frame = tk.Frame(row, bg=BG_COLOR, cursor="hand2")
         prog_frame.pack(side="left", padx=(0, 6))
 
@@ -529,7 +776,6 @@ class ToDoApp:
             )
             sym.pack()
         else:
-            # Show a row of dots: filled = done step, empty = pending
             for i in range(steps):
                 filled = i < steps_done
                 dot = tk.Label(
@@ -548,19 +794,7 @@ class ToDoApp:
         for child in prog_frame.winfo_children():
             child.bind("<Button-1>", lambda e, t=task: self._advance_step(t))
 
-        # ── Task text (clickable to edit) ─────────────────────────────────────
-        text_color  = DONE_COLOR if done else TEXT_COLOR
-        text_font   = font.Font(family="Helvetica", size=11, overstrike=done)
-
-        text_lbl = tk.Label(
-            row, text=task["text"], bg=BG_COLOR, fg=text_color,
-            font=text_font, anchor="w", wraplength=200,
-            justify="left", cursor="xterm"
-        )
-        text_lbl.pack(side="left", fill="x", expand=True)
-        text_lbl.bind("<Button-1>", lambda e, t=task, r=row, l=text_lbl: self._start_edit(t, r, l))
-
-        # ── Delete button ─────────────────────────────────────────────────────
+        # ── Delete button (pack right first so text doesn't push it off) ──────
         del_btn = tk.Label(
             row, text="✕", bg=BG_COLOR, fg=DELETE_COLOR,
             font=("Helvetica", 10), cursor="hand2", padx=4
@@ -568,7 +802,7 @@ class ToDoApp:
         del_btn.pack(side="right")
         del_btn.bind("<Button-1>", lambda e, t=task: self._delete_task(t))
 
-        # ── Per-task steps cycle button ────────────────────────────────────────
+        # ── Per-task steps cycle ───────────────────────────────────────────────
         steps_lbl = tk.Label(
             row, text=f"{steps}×", bg=BG_COLOR,
             fg=ACCENT_COLOR if steps > 1 else DONE_COLOR,
@@ -577,10 +811,19 @@ class ToDoApp:
         steps_lbl.pack(side="right")
         steps_lbl.bind("<Button-1>", lambda e, t=task: self._cycle_task_steps(t))
 
-        # ── Move to Today button (Incomplete tab only, for non-today tasks) ────
-        today = str(date.today())
+        # ── Days left badge (recurring tasks only) ────────────────────────────
+        if is_recurring:
+            days_text = self._days_left_text(task["until_date"])
+            days_lbl = tk.Label(
+                row, text=days_text, bg=BG_COLOR, fg=UNTIL_COLOR,
+                font=("Helvetica", 8), padx=2
+            )
+            days_lbl.pack(side="right")
+            days_lbl.bind("<MouseWheel>", self._on_scroll)
+
+        # ── Move to Today button (Incomplete tab, non-recurring) ──────────────
         extra_widgets = []
-        if self.active_tab == "Incomplete" and task.get("created_date") != today:
+        if self.active_tab == "Incomplete" and not is_recurring and task.get("created_date") != today_str:
             today_btn = tk.Label(
                 row, text="→ Today", bg=BG_COLOR, fg=SYNC_COLOR,
                 font=("Helvetica", 9, "bold"), cursor="hand2", padx=4
@@ -590,6 +833,17 @@ class ToDoApp:
             today_btn.bind("<MouseWheel>", self._on_scroll)
             extra_widgets.append(today_btn)
 
+        # ── Task text ─────────────────────────────────────────────────────────
+        text_color = DONE_COLOR if done else TEXT_COLOR
+        text_font  = font.Font(family="Helvetica", size=11, overstrike=done)
+        text_lbl = tk.Label(
+            row, text=task["text"], bg=BG_COLOR, fg=text_color,
+            font=text_font, anchor="w", wraplength=160,
+            justify="left", cursor="xterm"
+        )
+        text_lbl.pack(side="left", fill="x", expand=True)
+        text_lbl.bind("<Button-1>", lambda e, t=task, r=row, l=text_lbl: self._start_edit(t, r, l))
+
         sep = tk.Frame(self.task_frame, bg=HEADER_COLOR, height=1)
         sep.pack(fill="x", padx=8)
 
@@ -597,12 +851,18 @@ class ToDoApp:
             w.bind("<MouseWheel>", self._on_scroll)
 
     def _make_lifted_task_row(self, task):
-        """Placeholder shown in the list at the drop target — looks like the task, slightly enlarged."""
-        steps      = task.get("steps", 1)
-        steps_done = task.get("steps_done", 0)
-        done       = task.get("done", False)
+        is_recurring = bool(task.get("until_date"))
+        today_str    = str(date.today())
 
-        # Accent-coloured border wrapper
+        if is_recurring:
+            steps      = task.get("steps", 1)
+            steps_done = task.get("daily_done", {}).get(today_str, 0)
+            done       = steps_done >= steps
+        else:
+            steps      = task.get("steps", 1)
+            steps_done = task.get("steps_done", 0)
+            done       = task.get("done", False)
+
         outer = tk.Frame(self.task_frame, bg=ACCENT_COLOR, pady=1)
         outer.pack(fill="x", padx=6)
 
@@ -644,7 +904,6 @@ class ToDoApp:
         self._drag_source_idx = visible.index(task)
         self._drag_target_idx = self._drag_source_idx
         self._create_ghost(task, event)
-        # Bind to root so events survive widget destruction during refresh
         self.root.bind("<B1-Motion>", self._drag_motion)
         self.root.bind("<ButtonRelease-1>", self._drag_end)
         self._refresh_tasks()
@@ -658,9 +917,17 @@ class ToDoApp:
         ghost.attributes("-topmost", True)
         ghost.configure(bg=HEADER_COLOR)
 
-        steps      = task.get("steps", 1)
-        steps_done = task.get("steps_done", 0)
-        done       = task.get("done", False)
+        is_recurring = bool(task.get("until_date"))
+        today_str    = str(date.today())
+
+        if is_recurring:
+            steps      = task.get("steps", 1)
+            steps_done = task.get("daily_done", {}).get(today_str, 0)
+            done       = steps_done >= steps
+        else:
+            steps      = task.get("steps", 1)
+            steps_done = task.get("steps_done", 0)
+            done       = task.get("done", False)
 
         frame = tk.Frame(ghost, bg=HEADER_COLOR, pady=4, padx=6)
         frame.pack()
