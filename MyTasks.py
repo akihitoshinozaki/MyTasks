@@ -181,7 +181,7 @@ class ToDoApp:
 
         # Until button — opens calendar date picker
         self.until_btn = tk.Button(
-            input_frame, text="Until", bg=BUTTON_COLOR, fg=DONE_COLOR,
+            input_frame, text="Until", bg=BUTTON_COLOR, fg=TEXT_COLOR,
             relief="flat", font=("Helvetica", 10),
             cursor="hand2", command=self._show_calendar_picker,
             padx=5, pady=5, bd=0, activebackground=BUTTON_COLOR
@@ -190,7 +190,7 @@ class ToDoApp:
 
         # Steps toggle button — cycles 1× → 2× → 3× → 1×
         self.steps_btn = tk.Button(
-            input_frame, text="1×", bg=BUTTON_COLOR, fg=DONE_COLOR,
+            input_frame, text="1×", bg=BUTTON_COLOR, fg=TEXT_COLOR,
             relief="flat", font=("Helvetica", 10, "bold"),
             cursor="hand2", command=self._cycle_steps,
             padx=6, pady=5, bd=0, activebackground=BUTTON_COLOR,
@@ -257,7 +257,7 @@ class ToDoApp:
         active = self.new_task_steps > 1
         self.steps_btn.config(
             text=label,
-            fg=ACCENT_COLOR if active else DONE_COLOR,
+            fg=ACCENT_COLOR if active else TEXT_COLOR,
             bg=TAB_ACTIVE_BG if active else BUTTON_COLOR
         )
 
@@ -385,7 +385,7 @@ class ToDoApp:
                     fg=BG_COLOR, bg=UNTIL_COLOR
                 )
             else:
-                self.until_btn.config(text="Until", fg=DONE_COLOR, bg=BUTTON_COLOR)
+                self.until_btn.config(text="Until", fg=TEXT_COLOR, bg=BUTTON_COLOR)
             popup.destroy()
             self._cal_popup = None
 
@@ -585,12 +585,12 @@ class ToDoApp:
             task["until_date"] = self.pending_until_date
             task["daily_done"] = {}
             self.pending_until_date = None
-            self.until_btn.config(text="Until", fg=DONE_COLOR, bg=BUTTON_COLOR)
+            self.until_btn.config(text="Until", fg=TEXT_COLOR, bg=BUTTON_COLOR)
 
         self.tasks.append(task)
         self.entry.delete(0, "end")
         self.new_task_steps = 1
-        self.steps_btn.config(text="1×", fg=DONE_COLOR, bg=BUTTON_COLOR)
+        self.steps_btn.config(text="1×", fg=TEXT_COLOR, bg=BUTTON_COLOR)
         self._switch_tab("Today")
         if self.service:
             threading.Thread(target=self._push_task_to_google, args=(task,), daemon=True).start()
