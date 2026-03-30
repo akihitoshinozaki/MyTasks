@@ -410,6 +410,8 @@ class ToDoApp:
     def _task_done_today(self, task):
         """Return whether the task is considered done for today."""
         if task.get("until_date"):
+            if task.get("permanently_done"):
+                return True
             today = str(date.today())
             steps = task.get("steps", 1)
             return task.get("daily_done", {}).get(today, 0) >= steps
@@ -421,7 +423,7 @@ class ToDoApp:
             tasks = []
             for t in self.tasks:
                 if t.get("until_date"):
-                    if not t.get("permanently_done") and today <= t["until_date"]:
+                    if today <= t["until_date"]:  # show permanently_done as crossed out
                         tasks.append(t)
                 else:
                     if t.get("created_date") == today:
@@ -587,7 +589,7 @@ class ToDoApp:
             self.pending_until_date = None
             self.until_btn.config(text="Until", fg=TEXT_COLOR, bg=BUTTON_COLOR)
 
-        self.tasks.append(task)
+        self.tasks.insert(0, task)
         self.entry.delete(0, "end")
         self.new_task_steps = 1
         self.steps_btn.config(text="1×", fg=TEXT_COLOR, bg=BUTTON_COLOR)
@@ -641,10 +643,8 @@ class ToDoApp:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
 
     def _finish_recurring(self, task):
-        task["permanently_done"] = True
+        task["permanently_done"] = not task.get("permanently_done", False)
         self._refresh_tasks()
-        if self.service:
-            threading.Thread(target=self._delete_task_on_google, args=(task["google_id"],), daemon=True).start()
 
     def _delete_task(self, task):
         self.tasks.remove(task)
@@ -747,8 +747,12 @@ class ToDoApp:
 
         if is_recurring:
             steps      = task.get("steps", 1)
-            steps_done = task.get("daily_done", {}).get(today_str, 0)
-            done       = steps_done >= steps
+            if task.get("permanently_done"):
+                steps_done = steps
+                done       = True
+            else:
+                steps_done = task.get("daily_done", {}).get(today_str, 0)
+                done       = steps_done >= steps
         else:
             steps      = task.get("steps", 1)
             steps_done = task.get("steps_done", 0)
