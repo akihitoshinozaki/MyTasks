@@ -421,7 +421,7 @@ class ToDoApp:
             tasks = []
             for t in self.tasks:
                 if t.get("until_date"):
-                    if today <= t["until_date"]:
+                    if not t.get("permanently_done") and today <= t["until_date"]:
                         tasks.append(t)
                 else:
                     if t.get("created_date") == today:
@@ -430,7 +430,7 @@ class ToDoApp:
             tasks = []
             for t in self.tasks:
                 if t.get("until_date"):
-                    if today <= t["until_date"] and not self._task_done_today(t):
+                    if not t.get("permanently_done") and today <= t["until_date"] and not self._task_done_today(t):
                         tasks.append(t)
                 else:
                     if not t.get("done"):
@@ -640,6 +640,12 @@ class ToDoApp:
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
 
+    def _finish_recurring(self, task):
+        task["permanently_done"] = True
+        self._refresh_tasks()
+        if self.service:
+            threading.Thread(target=self._delete_task_on_google, args=(task["google_id"],), daemon=True).start()
+
     def _delete_task(self, task):
         self.tasks.remove(task)
         self._refresh_tasks()
@@ -811,8 +817,16 @@ class ToDoApp:
         steps_lbl.pack(side="right")
         steps_lbl.bind("<Button-1>", lambda e, t=task: self._cycle_task_steps(t))
 
-        # ── Days left badge (recurring tasks only) ────────────────────────────
+        # ── Days left badge + finish button (recurring tasks only) ───────────
         if is_recurring:
+            finish_btn = tk.Label(
+                row, text="✓✓", bg=BG_COLOR, fg=SYNC_COLOR,
+                font=("Helvetica", 9, "bold"), cursor="hand2", padx=2
+            )
+            finish_btn.pack(side="right")
+            finish_btn.bind("<Button-1>", lambda e, t=task: self._finish_recurring(t))
+            finish_btn.bind("<MouseWheel>", self._on_scroll)
+
             days_text = self._days_left_text(task["until_date"])
             days_lbl = tk.Label(
                 row, text=days_text, bg=BG_COLOR, fg=UNTIL_COLOR,
