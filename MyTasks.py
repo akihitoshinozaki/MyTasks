@@ -38,6 +38,8 @@ UNTIL_COLOR   = "#5e7a9b"
 TAB_BG        = "#f5e6d3"
 TIMER_COLOR   = "#3d7a5e"
 WINDOW_WIDTH  = 300
+# Background colors per nesting depth (depth 0 = root)
+DEPTH_BG      = ["#f5e6d3", "#ede0c4", "#e5d9b5", "#ddd2a6", "#d5cb97"]
 
 TABS            = ["Today", "Incomplete"]
 TIMER_PRESETS   = [0, 5, 10, 15, 20, 25, 30, 45, 60]
@@ -432,7 +434,8 @@ class ToDoApp:
         for t in tasks:
             pid = t.get("parent_id")
             parent = gid_map.get(pid) if pid else None
-            if parent and id(parent) in gid_set:
+            # Only group under parent when parent is visible AND undone
+            if parent and id(parent) in gid_set and not self._task_done_today(parent):
                 children_map.setdefault(pid, []).append(t)
             else:
                 roots.append(t)
@@ -446,12 +449,36 @@ class ToDoApp:
             flatten(r)
         return result
 
-    def _parent_done(self, task):
+    def _task_depth(self, task, _visited=None):
         pid = task.get("parent_id")
         if not pid:
-            return True
-        parent = next((t for t in self.tasks if t.get("google_id") == pid), None)
-        return parent is None or self._task_done_today(parent)
+            return 0
+        if _visited is None:
+            _visited = set()
+        if pid in _visited:
+            return 0  # circular protection
+        _visited.add(pid)
+        gid_map = {t.get("google_id"): t for t in self.tasks if t.get("google_id")}
+        parent = gid_map.get(pid)
+        if not parent:
+            return 0
+        return 1 + self._task_depth(parent, _visited)
+
+    def _parent_done(self, task):
+        gid_map = {t.get("google_id"): t for t in self.tasks if t.get("google_id")}
+        current = task
+        visited = set()
+        while True:
+            pid = current.get("parent_id")
+            if not pid or pid in visited:
+                return True
+            visited.add(pid)
+            parent = gid_map.get(pid)
+            if not parent:
+                return True
+            if not self._task_done_today(parent):
+                return False
+            current = parent
 
     def _indent_task(self, task):
         visible = self._ordered_visible_tasks(self._visible_tasks_flat())
@@ -471,7 +498,15 @@ class ToDoApp:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
 
     def _outdent_task(self, task):
-        task.pop("parent_id", None)
+        pid = task.get("parent_id")
+        if not pid:
+            return
+        gid_map = {t.get("google_id"): t for t in self.tasks if t.get("google_id")}
+        parent = gid_map.get(pid)
+        if parent and parent.get("parent_id"):
+            task["parent_id"] = parent["parent_id"]  # go up one level
+        else:
+            task.pop("parent_id", None)  # become root
         self._refresh_tasks()
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
@@ -1036,7 +1071,14 @@ class ToDoApp:
             display.insert(tgt, None)
             for item in display:
                 if item is None:
-                    self._make_lifted_task_row(drag_task, indent=self._drag_indent)
+                    if self._drag_indent:
+                        visible_without = [t for t in visible if t is not drag_task]
+                        tgt_c = max(0, min(tgt, len(visible_without)))
+                        above = visible_without[tgt_c - 1] if tgt_c > 0 else None
+                        tdepth = (self._task_depth(above) + 1) if above else 0
+                    else:
+                        tdepth = self._task_depth(drag_task)
+                    self._make_lifted_task_row(drag_task, target_depth=tdepth)
                 else:
                     self._make_task_row(item)
         elif not visible:
@@ -1083,10 +1125,11 @@ class ToDoApp:
             steps_done = task.get("steps_done", 0)
             done       = task.get("done", False)
 
-        is_subtask  = bool(task.get("parent_id"))
+        depth       = self._task_depth(task)
+        is_subtask  = depth > 0
         is_locked   = is_subtask and not self._parent_done(task)
-        row_bg      = "#f0dfc8" if is_subtask else BG_COLOR
-        left_pad    = 24 if is_subtask else 8
+        row_bg      = DEPTH_BG[min(depth, len(DEPTH_BG) - 1)]
+        left_pad    = 8 + depth * 16
 
         row = tk.Frame(self.task_frame, bg=row_bg, pady=4)
         row.pack(fill="x", padx=(left_pad, 8))
@@ -1259,12 +1302,12 @@ class ToDoApp:
         text_lbl.bind("<Button-1>", lambda e, t=task, r=row, l=text_lbl: self._start_edit(t, r, l))
 
         sep = tk.Frame(self.task_frame, bg=HEADER_COLOR, height=1)
-        sep.pack(fill="x", padx=8)
+        sep.pack(fill="x", padx=(left_pad, 8))
 
         for w in (row, prog_frame, text_lbl, del_btn, steps_lbl, sep, indent_btn, *extra_widgets, *timer_widgets):
             w.bind("<MouseWheel>", self._on_scroll)
 
-    def _make_lifted_task_row(self, task, indent=False):
+    def _make_lifted_task_row(self, task, target_depth=None):
         is_recurring = bool(task.get("until_date"))
         today_str    = str(date.today())
 
@@ -1277,15 +1320,17 @@ class ToDoApp:
             steps_done = task.get("steps_done", 0)
             done       = task.get("done", False)
 
-        left_pad = 22 if indent else 6
+        depth    = target_depth if target_depth is not None else self._task_depth(task)
+        left_pad = 6 + depth * 16
+        row_bg   = DEPTH_BG[min(depth, len(DEPTH_BG) - 1)]
+
         outer = tk.Frame(self.task_frame, bg=ACCENT_COLOR, pady=1)
         outer.pack(fill="x", padx=(left_pad, 6))
 
-        row_bg = "#e0c9a8" if indent else HEADER_COLOR
         row = tk.Frame(outer, bg=row_bg, pady=6)
         row.pack(fill="x", padx=1)
 
-        if indent:
+        if depth > 0:
             tk.Label(row, text="↳", bg=row_bg, fg=ACCENT_COLOR,
                      font=("Helvetica", 11, "bold"), padx=4).pack(side="left")
 
