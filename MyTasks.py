@@ -401,6 +401,46 @@ class ToDoApp:
             after_id = self.root.after(1000, self._tick)
             self._active_timer["after_id"] = after_id
 
+    def _show_task_timer_picker(self, task, anchor_widget):
+        popup = tk.Toplevel(self.root)
+        popup.title("")
+        popup.resizable(False, False)
+        popup.configure(bg=HEADER_COLOR)
+        popup.attributes("-topmost", True)
+        popup.overrideredirect(True)
+
+        row_frame = tk.Frame(popup, bg=HEADER_COLOR, padx=6, pady=6)
+        row_frame.pack()
+
+        def pick(minutes):
+            task["estimated_minutes"] = minutes
+            task["timer_remaining_seconds"] = minutes * 60
+            task["timer_elapsed_seconds"] = 0
+            popup.destroy()
+            self._refresh_tasks()
+
+        for m in [5, 10, 15, 20, 25, 30, 45, 60]:
+            btn = tk.Button(
+                row_frame, text=f"{m}m", bg=BUTTON_COLOR, fg=BG_COLOR,
+                relief="flat", font=("Helvetica", 10, "bold"),
+                cursor="hand2", padx=5, pady=4, bd=0,
+                activebackground=ACCENT_COLOR, activeforeground=BG_COLOR,
+                command=lambda v=m: pick(v)
+            )
+            btn.pack(side="left", padx=2)
+
+        popup.update_idletasks()
+        ax = anchor_widget.winfo_rootx()
+        ay = anchor_widget.winfo_rooty()
+        pw = popup.winfo_width()
+        ph = popup.winfo_height()
+        popup.geometry(f"+{ax - pw + anchor_widget.winfo_width()}+{ay - ph - 4}")
+        popup.bind("<FocusOut>", lambda e: popup.destroy())
+        popup.focus_set()
+
+        for window in NSApp.windows():
+            window.setLevel_(NSStatusWindowLevel + 1)
+
     def _stop_active_timer(self):
         if self._active_timer:
             if self._active_timer.get("after_id"):
@@ -1023,7 +1063,16 @@ class ToDoApp:
         # ── Timer display ─────────────────────────────────────────────────────
         extra_widgets = []
         timer_widgets = []
-        if task.get("estimated_minutes"):
+        if not task.get("estimated_minutes"):
+            add_timer_lbl = tk.Label(
+                row, text="⏱", bg=BG_COLOR, fg=DONE_COLOR,
+                font=("Helvetica", 10), cursor="hand2", padx=2
+            )
+            add_timer_lbl.pack(side="right")
+            add_timer_lbl.bind("<Button-1>", lambda e, t=task, w=add_timer_lbl: self._show_task_timer_picker(t, w))
+            add_timer_lbl.bind("<MouseWheel>", self._on_scroll)
+            timer_widgets.append(add_timer_lbl)
+        elif task.get("estimated_minutes"):
             is_active  = self._active_timer and self._active_timer["task"] is task
             is_running = is_active and self._active_timer["running"]
             rem        = task.get("timer_remaining_seconds", 0)
