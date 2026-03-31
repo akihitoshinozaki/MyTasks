@@ -183,9 +183,9 @@ class ToDoApp:
         self.entry = tk.Entry(
             input_frame, bg=ENTRY_BG, fg=TEXT_COLOR,
             insertbackground=TEXT_COLOR, relief="flat",
-            font=("Helvetica", 11), width=12
+            font=("Helvetica", 11), width=10
         )
-        self.entry.pack(side="left", padx=(8, 4), ipady=5)
+        self.entry.pack(side="left", padx=(6, 3), ipady=5)
         self.entry.bind("<Return>", self._add_task)
         self.entry.focus_set()
 
@@ -193,37 +193,37 @@ class ToDoApp:
             input_frame, text="Add", bg=ACCENT_COLOR, fg=BG_COLOR,
             relief="flat", font=("Helvetica", 10, "bold"),
             cursor="hand2", command=self._add_task,
-            padx=6, pady=5, bd=0, activebackground=ACCENT_COLOR
-        ).pack(side="left", padx=(0, 4))
+            padx=5, pady=5, bd=0, activebackground=ACCENT_COLOR
+        ).pack(side="left", padx=(0, 3))
 
         # Until button — opens calendar date picker
         self.until_btn = tk.Button(
             input_frame, text="Until", bg=BUTTON_COLOR, fg=TEXT_COLOR,
             relief="flat", font=("Helvetica", 10),
             cursor="hand2", command=self._show_calendar_picker,
-            padx=5, pady=5, bd=0, activebackground=BUTTON_COLOR
+            padx=4, pady=5, bd=0, activebackground=BUTTON_COLOR
         )
-        self.until_btn.pack(side="left", padx=(0, 4))
+        self.until_btn.pack(side="left", padx=(0, 3))
 
         # Steps toggle button — cycles 1× → 2× → 3× → 1×
         self.steps_btn = tk.Button(
             input_frame, text="1×", bg=BUTTON_COLOR, fg=TEXT_COLOR,
             relief="flat", font=("Helvetica", 10, "bold"),
             cursor="hand2", command=self._cycle_steps,
-            padx=6, pady=5, bd=0, activebackground=BUTTON_COLOR,
+            padx=4, pady=5, bd=0, activebackground=BUTTON_COLOR,
             width=2
         )
-        self.steps_btn.pack(side="left", padx=(0, 4))
+        self.steps_btn.pack(side="left", padx=(0, 3))
 
         # Timer preset button — cycles off → 5m → 10m → … → 60m → off
         self.timer_btn = tk.Button(
             input_frame, text="⏱", bg=BUTTON_COLOR, fg=TEXT_COLOR,
             relief="flat", font=("Helvetica", 10),
             cursor="hand2", command=self._cycle_timer_preset,
-            padx=4, pady=5, bd=0, activebackground=BUTTON_COLOR,
+            padx=3, pady=5, bd=0, activebackground=BUTTON_COLOR,
             width=3
         )
-        self.timer_btn.pack(side="left", padx=(0, 8))
+        self.timer_btn.pack(side="left", padx=(0, 4))
 
         self._switch_tab("Today")
         self._setup_global_hotkey()
