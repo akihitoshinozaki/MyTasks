@@ -421,7 +421,7 @@ class ToDoApp:
 
         for m in [5, 10, 15, 20, 25, 30, 45, 60]:
             btn = tk.Button(
-                row_frame, text=f"{m}m", bg=BUTTON_COLOR, fg=BG_COLOR,
+                row_frame, text=f"{m}m", bg=BUTTON_COLOR, fg=TEXT_COLOR,
                 relief="flat", font=("Helvetica", 10, "bold"),
                 cursor="hand2", padx=5, pady=4, bd=0,
                 activebackground=ACCENT_COLOR, activeforeground=BG_COLOR,
