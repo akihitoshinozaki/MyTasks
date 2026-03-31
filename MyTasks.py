@@ -38,8 +38,12 @@ UNTIL_COLOR   = "#5e7a9b"
 TAB_BG        = "#f5e6d3"
 TIMER_COLOR   = "#3d7a5e"
 WINDOW_WIDTH  = 300
-# Background colors per nesting depth (depth 0 = root)
-DEPTH_BG      = ["#f5e6d3", "#ede0c4", "#e5d9b5", "#ddd2a6", "#d5cb97"]
+# Card UI
+CARD_RADIUS   = 10
+CARD_SHADOW   = "#c0a070"
+CARD_LIFT_SHADOW = "#a08050"
+# Card backgrounds per nesting depth
+DEPTH_BG      = ["#fdf6ec", "#f5e6d3", "#ecdcca", "#e3d2ba", "#dad0ae"]
 
 TABS            = ["Today", "Incomplete"]
 TIMER_PRESETS   = [0, 5, 10, 15, 20, 25, 30, 45, 60]
@@ -79,6 +83,20 @@ def fetch_google_tasks(service, tasklist_id):
         showHidden=True, maxResults=100
     ).execute()
     return result.get("items", [])
+
+
+# ── Card drawing helper ───────────────────────────────────────────────────────
+
+def _rounded_rect(canvas, x1, y1, x2, y2, r=CARD_RADIUS, **kw):
+    pts = [
+        x1+r, y1,   x2-r, y1,
+        x2,   y1,   x2,   y1+r,
+        x2,   y2-r, x2,   y2,
+        x2-r, y2,   x1+r, y2,
+        x1,   y2,   x1,   y2-r,
+        x1,   y1+r, x1,   y1,
+    ]
+    return canvas.create_polygon(pts, smooth=True, **kw)
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -975,6 +993,8 @@ class ToDoApp:
                     task["done"] = True
         if self._active_timer and self._active_timer["task"] is task:
             self._stop_active_timer()
+        if self._task_done_today(task):
+            self._release_subtasks(task)
         self._refresh_tasks()
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
@@ -1054,6 +1074,56 @@ class ToDoApp:
         edit_entry.bind("<Escape>", lambda e: save())
         edit_entry.bind("<FocusOut>", save)
 
+    # ── Card canvas factory ───────────────────────────────────────────────────
+
+    def _make_card_canvas(self, depth=0, lifted=False):
+        """Return (canvas, inner_frame) for a rounded-card task row."""
+        depth_bg = DEPTH_BG[min(depth, len(DEPTH_BG) - 1)]
+        card_w   = WINDOW_WIDTH - 22 - depth * 16
+        sh_off   = 4 if lifted else 2
+        sh_col   = CARD_LIFT_SHADOW if lifted else CARD_SHADOW
+
+        cv = tk.Canvas(self.task_frame, bg=BG_COLOR,
+                       highlightthickness=0, bd=0,
+                       width=card_w + sh_off + 4, height=52)
+        cv.pack(fill="x", padx=(8 + depth * 16, 8), pady=(5, 0))
+
+        frame = tk.Frame(cv, bg=depth_bg)
+        cv.create_window(2, 2, window=frame, anchor="nw",
+                         width=card_w - 4, tags="content")
+
+        def redraw(event=None):
+            fh = frame.winfo_reqheight()
+            if fh < 4:
+                return
+            h = fh + 8
+            cv.configure(height=h + sh_off + 4)
+            cv.delete("shapes")
+            _rounded_rect(cv, sh_off + 1, sh_off + 1,
+                          card_w + sh_off - 1, h + sh_off - 1,
+                          r=CARD_RADIUS, fill=sh_col, outline="", tags="shapes")
+            _rounded_rect(cv, 1, 1, card_w - 1, h,
+                          r=CARD_RADIUS, fill=depth_bg, outline="", tags="shapes")
+            cv.tag_lower("shapes")
+
+        frame.bind("<Configure>", redraw)
+        return cv, frame
+
+    # ── Subtask release ───────────────────────────────────────────────────────
+
+    def _release_subtasks(self, task):
+        """When a task is completed, remove parent_id from its direct children."""
+        gid = task.get("google_id")
+        if not gid:
+            return
+        for t in self.tasks:
+            if t.get("parent_id") == gid:
+                t.pop("parent_id", None)
+                if self.service:
+                    threading.Thread(
+                        target=self._update_task_on_google, args=(t,), daemon=True
+                    ).start()
+
     # ── Render ────────────────────────────────────────────────────────────────
 
     def _refresh_tasks(self):
@@ -1129,10 +1199,8 @@ class ToDoApp:
         is_subtask  = depth > 0
         is_locked   = is_subtask and not self._parent_done(task)
         row_bg      = DEPTH_BG[min(depth, len(DEPTH_BG) - 1)]
-        left_pad    = 8 + depth * 16
 
-        row = tk.Frame(self.task_frame, bg=row_bg, pady=4)
-        row.pack(fill="x", padx=(left_pad, 8))
+        card_cv, row = self._make_card_canvas(depth=depth, lifted=False)
         self._task_rows.append((task, row))
 
         # ── Outdent button (subtasks only) ───────────────────────────────────
@@ -1301,10 +1369,7 @@ class ToDoApp:
         text_lbl.pack(side="left", fill="x", expand=True)
         text_lbl.bind("<Button-1>", lambda e, t=task, r=row, l=text_lbl: self._start_edit(t, r, l))
 
-        sep = tk.Frame(self.task_frame, bg=HEADER_COLOR, height=1)
-        sep.pack(fill="x", padx=(left_pad, 8))
-
-        for w in (row, prog_frame, text_lbl, del_btn, steps_lbl, sep, indent_btn, *extra_widgets, *timer_widgets):
+        for w in (card_cv, row, prog_frame, text_lbl, del_btn, steps_lbl, indent_btn, *extra_widgets, *timer_widgets):
             w.bind("<MouseWheel>", self._on_scroll)
 
     def _make_lifted_task_row(self, task, target_depth=None):
@@ -1320,15 +1385,10 @@ class ToDoApp:
             steps_done = task.get("steps_done", 0)
             done       = task.get("done", False)
 
-        depth    = target_depth if target_depth is not None else self._task_depth(task)
-        left_pad = 6 + depth * 16
-        row_bg   = DEPTH_BG[min(depth, len(DEPTH_BG) - 1)]
+        depth  = target_depth if target_depth is not None else self._task_depth(task)
+        row_bg = DEPTH_BG[min(depth, len(DEPTH_BG) - 1)]
 
-        outer = tk.Frame(self.task_frame, bg=ACCENT_COLOR, pady=1)
-        outer.pack(fill="x", padx=(left_pad, 6))
-
-        row = tk.Frame(outer, bg=row_bg, pady=6)
-        row.pack(fill="x", padx=1)
+        card_cv, row = self._make_card_canvas(depth=depth, lifted=True)
 
         if depth > 0:
             tk.Label(row, text="↳", bg=row_bg, fg=ACCENT_COLOR,
@@ -1354,9 +1414,7 @@ class ToDoApp:
                  font=lf, anchor="w", wraplength=190,
                  justify="left").pack(side="left", fill="x", expand=True, padx=4)
 
-        sep = tk.Frame(self.task_frame, bg=HEADER_COLOR, height=1)
-        sep.pack(fill="x", padx=8)
-        for w in (outer, row, sep):
+        for w in (card_cv, row):
             w.bind("<MouseWheel>", self._on_scroll)
 
     # ── Drag and drop ─────────────────────────────────────────────────────────
@@ -1381,7 +1439,7 @@ class ToDoApp:
         ghost.overrideredirect(True)
         ghost.attributes("-alpha", 0.88)
         ghost.attributes("-topmost", True)
-        ghost.configure(bg=HEADER_COLOR)
+        ghost.configure(bg=DEPTH_BG[0])
 
         is_recurring = bool(task.get("until_date"))
         today_str    = str(date.today())
@@ -1395,26 +1453,27 @@ class ToDoApp:
             steps_done = task.get("steps_done", 0)
             done       = task.get("done", False)
 
-        frame = tk.Frame(ghost, bg=HEADER_COLOR, pady=4, padx=6)
+        ghost_bg = DEPTH_BG[0]
+        frame = tk.Frame(ghost, bg=ghost_bg, pady=6, padx=8)
         frame.pack()
         self._ghost_frame = frame
 
-        tk.Label(frame, text="⠿", bg=HEADER_COLOR, fg=DONE_COLOR,
+        tk.Label(frame, text="⠿", bg=ghost_bg, fg=DONE_COLOR,
                  font=("Helvetica", 12), padx=2).pack(side="left")
 
         if steps == 1:
             tk.Label(frame, text="✓" if done else "○",
-                     bg=HEADER_COLOR, fg=ACCENT_COLOR if done else DONE_COLOR,
+                     bg=ghost_bg, fg=ACCENT_COLOR if done else DONE_COLOR,
                      font=("Helvetica", 12)).pack(side="left", padx=(0, 6))
         else:
             for i in range(steps):
                 tk.Label(frame, text="●" if i < steps_done else "○",
-                         bg=HEADER_COLOR,
+                         bg=ghost_bg,
                          fg=ACCENT_COLOR if i < steps_done else STEP_EMPTY,
                          font=("Helvetica", 11)).pack(side="left")
 
         gf = font.Font(family="Helvetica", size=12, overstrike=done)
-        text_lbl = tk.Label(frame, text=task["text"], bg=HEADER_COLOR,
+        text_lbl = tk.Label(frame, text=task["text"], bg=ghost_bg,
                             fg=DONE_COLOR if done else TEXT_COLOR,
                             font=gf, wraplength=180)
         text_lbl.pack(side="left", padx=4)
@@ -1457,7 +1516,7 @@ class ToDoApp:
         if not self._ghost or not self._ghost.winfo_exists():
             return
         indent = self._drag_indent
-        bg = "#e0c9a8" if indent else HEADER_COLOR
+        bg = DEPTH_BG[1] if indent else DEPTH_BG[0]
         self._ghost.configure(bg=bg)
         if self._ghost_frame and self._ghost_frame.winfo_exists():
             self._ghost_frame.configure(bg=bg)
