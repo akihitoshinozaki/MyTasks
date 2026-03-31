@@ -231,14 +231,14 @@ class ToDoApp:
             )
 
     def _toggle_window(self):
-        if self.root.attributes("-alpha") == 0:
-            self.root.attributes("-alpha", 1.0)
+        if self.root.state() == "withdrawn":
+            self.root.deiconify()
             for window in NSApp.windows():
                 window.setLevel_(NSStatusWindowLevel)
                 window.orderFrontRegardless()
             NSApp.activateIgnoringOtherApps_(True)
         else:
-            self.root.attributes("-alpha", 0)
+            self.root.withdraw()
 
     def _position_window(self):
         self.root.update_idletasks()
