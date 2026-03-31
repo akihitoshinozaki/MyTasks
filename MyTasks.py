@@ -3,6 +3,7 @@ from tkinter import font, messagebox
 import os
 import threading
 import time
+import subprocess
 import calendar as _cal
 from datetime import date, timedelta
 from pynput import keyboard as pynput_kb
@@ -26,7 +27,7 @@ ACCENT_COLOR  = "#9b5e2e"
 TEXT_COLOR    = "#2d1a0e"
 DONE_COLOR    = "#a08866"
 ENTRY_BG      = "#ede2cc"
-BUTTON_COLOR  = "#c9a97c"
+BUTTON_COLOR  = "#b8935a"
 DELETE_COLOR  = "#b84a3a"
 SYNC_COLOR    = "#4e7a42"
 TAB_ACTIVE_BG = "#c9a97c"
@@ -193,35 +194,37 @@ class ToDoApp:
             input_frame, text="Add", bg=ACCENT_COLOR, fg=BG_COLOR,
             relief="flat", font=("Helvetica", 10, "bold"),
             cursor="hand2", command=self._add_task,
-            padx=5, pady=5, bd=0, activebackground=ACCENT_COLOR
+            padx=5, pady=5, bd=0, activebackground=ACCENT_COLOR,
+            activeforeground=BG_COLOR
         ).pack(side="left", padx=(0, 3))
 
         # Until button — opens calendar date picker
         self.until_btn = tk.Button(
-            input_frame, text="Until", bg=BUTTON_COLOR, fg=TEXT_COLOR,
-            relief="flat", font=("Helvetica", 10),
+            input_frame, text="Until", bg=BUTTON_COLOR, fg=BG_COLOR,
+            relief="flat", font=("Helvetica", 10, "bold"),
             cursor="hand2", command=self._show_calendar_picker,
-            padx=4, pady=5, bd=0, activebackground=BUTTON_COLOR
+            padx=4, pady=5, bd=0, activebackground=BUTTON_COLOR,
+            activeforeground=BG_COLOR
         )
         self.until_btn.pack(side="left", padx=(0, 3))
 
         # Steps toggle button — cycles 1× → 2× → 3× → 1×
         self.steps_btn = tk.Button(
-            input_frame, text="1×", bg=BUTTON_COLOR, fg=TEXT_COLOR,
+            input_frame, text="1×", bg=BUTTON_COLOR, fg=BG_COLOR,
             relief="flat", font=("Helvetica", 10, "bold"),
             cursor="hand2", command=self._cycle_steps,
             padx=4, pady=5, bd=0, activebackground=BUTTON_COLOR,
-            width=2
+            activeforeground=BG_COLOR, width=2
         )
         self.steps_btn.pack(side="left", padx=(0, 3))
 
         # Timer preset button — cycles off → 5m → 10m → … → 60m → off
         self.timer_btn = tk.Button(
-            input_frame, text="⏱", bg=BUTTON_COLOR, fg=TEXT_COLOR,
-            relief="flat", font=("Helvetica", 10),
+            input_frame, text="⏱", bg=BUTTON_COLOR, fg=BG_COLOR,
+            relief="flat", font=("Helvetica", 10, "bold"),
             cursor="hand2", command=self._cycle_timer_preset,
             padx=3, pady=5, bd=0, activebackground=BUTTON_COLOR,
-            width=3
+            activeforeground=BG_COLOR, width=3
         )
         self.timer_btn.pack(side="left", padx=(0, 4))
 
@@ -284,8 +287,8 @@ class ToDoApp:
         active = self.new_task_steps > 1
         self.steps_btn.config(
             text=label,
-            fg=ACCENT_COLOR if active else TEXT_COLOR,
-            bg=TAB_ACTIVE_BG if active else BUTTON_COLOR
+            fg=BG_COLOR,
+            bg=ACCENT_COLOR if active else BUTTON_COLOR
         )
 
     # ── Timer preset toggle ───────────────────────────────────────────────────
@@ -294,7 +297,7 @@ class ToDoApp:
         idx = TIMER_PRESETS.index(self.new_task_minutes) if self.new_task_minutes in TIMER_PRESETS else 0
         self.new_task_minutes = TIMER_PRESETS[(idx + 1) % len(TIMER_PRESETS)]
         if self.new_task_minutes == 0:
-            self.timer_btn.config(text="⏱", fg=TEXT_COLOR, bg=BUTTON_COLOR)
+            self.timer_btn.config(text="⏱", fg=BG_COLOR, bg=BUTTON_COLOR)
         else:
             self.timer_btn.config(
                 text=f"{self.new_task_minutes}m",
@@ -418,6 +421,15 @@ class ToDoApp:
         self._refresh_tasks()
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
+        title = task["text"]
+        threading.Thread(
+            target=lambda: subprocess.run(
+                ["osascript", "-e",
+                 f'display notification "タイマー完了: {title}" with title "MyTasks" sound name "Glass"'],
+                capture_output=True
+            ),
+            daemon=True
+        ).start()
 
     # ── Calendar picker ───────────────────────────────────────────────────────
 
@@ -755,9 +767,9 @@ class ToDoApp:
         self.tasks.insert(0, task)
         self.entry.delete(0, "end")
         self.new_task_steps = 1
-        self.steps_btn.config(text="1×", fg=TEXT_COLOR, bg=BUTTON_COLOR)
+        self.steps_btn.config(text="1×", fg=BG_COLOR, bg=BUTTON_COLOR)
         self.new_task_minutes = 0
-        self.timer_btn.config(text="⏱", fg=TEXT_COLOR, bg=BUTTON_COLOR)
+        self.timer_btn.config(text="⏱", fg=BG_COLOR, bg=BUTTON_COLOR)
         self._switch_tab("Today")
         if self.service:
             threading.Thread(target=self._push_task_to_google, args=(task,), daemon=True).start()
