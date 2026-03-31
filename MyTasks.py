@@ -34,9 +34,11 @@ STEP_EMPTY    = "#c0a07a"
 STEP_FILL     = "#9b5e2e"
 UNTIL_COLOR   = "#5e7a9b"
 TAB_BG        = "#f5e6d3"
+TIMER_COLOR   = "#3d7a5e"
 WINDOW_WIDTH  = 300
 
-TABS = ["Today", "Incomplete"]
+TABS          = ["Today", "Incomplete"]
+TIMER_PRESETS = [0, 5, 10, 15, 20, 25, 30, 45, 60]
 
 
 # ── Google Auth ──────────────────────────────────────────────────────────────
@@ -93,6 +95,12 @@ class ToDoApp:
         self.pending_until_date = None
         self._cal_popup   = None
 
+        self.new_task_minutes     = 0
+        self._active_timer        = None   # {"task": task, "after_id": id, "running": bool}
+        self._total_study_seconds = 0
+        self._timer_label_widget  = None
+        self._summary_label       = None
+
         self._task_rows       = []
         self._drag_task       = None
         self._drag_source_idx = None
@@ -120,6 +128,15 @@ class ToDoApp:
             fg=DONE_COLOR, font=("Helvetica", 9), padx=8
         )
         self.sync_label.pack(side="right")
+
+        # Study time summary bar
+        summary_bar = tk.Frame(self.root, bg=HEADER_COLOR)
+        summary_bar.pack(fill="x")
+        self._summary_label = tk.Label(
+            summary_bar, text="今日の学習: 0分", bg=HEADER_COLOR,
+            fg=TIMER_COLOR, font=("Helvetica", 9, "bold"), padx=8, pady=2
+        )
+        self._summary_label.pack(side="left")
 
         # Tab bar
         tab_bar = tk.Frame(self.root, bg=HEADER_COLOR)
@@ -196,7 +213,17 @@ class ToDoApp:
             padx=6, pady=5, bd=0, activebackground=BUTTON_COLOR,
             width=2
         )
-        self.steps_btn.pack(side="left", padx=(0, 8))
+        self.steps_btn.pack(side="left", padx=(0, 4))
+
+        # Timer preset button — cycles off → 5m → 10m → … → 60m → off
+        self.timer_btn = tk.Button(
+            input_frame, text="⏱", bg=BUTTON_COLOR, fg=TEXT_COLOR,
+            relief="flat", font=("Helvetica", 10),
+            cursor="hand2", command=self._cycle_timer_preset,
+            padx=4, pady=5, bd=0, activebackground=BUTTON_COLOR,
+            width=3
+        )
+        self.timer_btn.pack(side="left", padx=(0, 8))
 
         self._switch_tab("Today")
         self._setup_global_hotkey()
@@ -260,6 +287,137 @@ class ToDoApp:
             fg=ACCENT_COLOR if active else TEXT_COLOR,
             bg=TAB_ACTIVE_BG if active else BUTTON_COLOR
         )
+
+    # ── Timer preset toggle ───────────────────────────────────────────────────
+
+    def _cycle_timer_preset(self):
+        idx = TIMER_PRESETS.index(self.new_task_minutes) if self.new_task_minutes in TIMER_PRESETS else 0
+        self.new_task_minutes = TIMER_PRESETS[(idx + 1) % len(TIMER_PRESETS)]
+        if self.new_task_minutes == 0:
+            self.timer_btn.config(text="⏱", fg=TEXT_COLOR, bg=BUTTON_COLOR)
+        else:
+            self.timer_btn.config(
+                text=f"{self.new_task_minutes}m",
+                fg=BG_COLOR, bg=TIMER_COLOR
+            )
+
+    # ── Timer helpers ─────────────────────────────────────────────────────────
+
+    def _format_time(self, seconds):
+        m, s = divmod(max(0, int(seconds)), 60)
+        return f"{m}:{s:02d}"
+
+    def _format_study_time(self, seconds):
+        total_min = seconds // 60
+        if total_min < 60:
+            return f"{total_min}分"
+        h = total_min // 60
+        m = total_min % 60
+        return f"{h}時間{m}分" if m else f"{h}時間"
+
+    def _update_summary(self):
+        if self._summary_label and self._summary_label.winfo_exists():
+            self._summary_label.config(
+                text=f"今日の学習: {self._format_study_time(self._total_study_seconds)}"
+            )
+
+    # ── Timer control ─────────────────────────────────────────────────────────
+
+    def _toggle_timer(self, task):
+        if self._active_timer and self._active_timer["task"] is task:
+            if self._active_timer["running"]:
+                self._pause_timer()
+            else:
+                self._resume_timer()
+        else:
+            self._start_timer(task)
+
+    def _start_timer(self, task):
+        if self._active_timer:
+            if self._active_timer.get("after_id"):
+                self.root.after_cancel(self._active_timer["after_id"])
+            self._active_timer["running"] = False
+        self._active_timer = {"task": task, "running": True, "after_id": None}
+        self._timer_label_widget = None
+        self._tick()
+        self._refresh_tasks()
+
+    def _pause_timer(self):
+        if not self._active_timer or not self._active_timer["running"]:
+            return
+        if self._active_timer.get("after_id"):
+            self.root.after_cancel(self._active_timer["after_id"])
+        self._active_timer["running"] = False
+        self._active_timer["after_id"] = None
+        task = self._active_timer["task"]
+        rem = task.get("timer_remaining_seconds", 0)
+        if self._timer_label_widget and self._timer_label_widget.winfo_exists():
+            self._timer_label_widget.config(text=f"▶ {self._format_time(rem)}")
+        else:
+            self._refresh_tasks()
+
+    def _resume_timer(self):
+        if not self._active_timer or self._active_timer["running"]:
+            return
+        self._active_timer["running"] = True
+        self._tick()
+        task = self._active_timer["task"]
+        rem = task.get("timer_remaining_seconds", 0)
+        if self._timer_label_widget and self._timer_label_widget.winfo_exists():
+            self._timer_label_widget.config(text=f"⏸ {self._format_time(rem)}")
+        else:
+            self._refresh_tasks()
+
+    def _add_timer_time(self, task, minutes=5):
+        task["timer_remaining_seconds"] = task.get("timer_remaining_seconds", 0) + minutes * 60
+        task["estimated_minutes"] = task.get("estimated_minutes", 0) + minutes
+        running = self._active_timer and self._active_timer["task"] is task and self._active_timer["running"]
+        icon = "⏸" if running else "▶"
+        rem = task.get("timer_remaining_seconds", 0)
+        if self._timer_label_widget and self._timer_label_widget.winfo_exists():
+            self._timer_label_widget.config(text=f"{icon} {self._format_time(rem)}")
+        else:
+            self._refresh_tasks()
+
+    def _tick(self):
+        if not self._active_timer or not self._active_timer["running"]:
+            return
+        task = self._active_timer["task"]
+        rem = task.get("timer_remaining_seconds", 0) - 1
+        task["timer_remaining_seconds"] = max(0, rem)
+        task["timer_elapsed_seconds"] = task.get("timer_elapsed_seconds", 0) + 1
+        self._total_study_seconds += 1
+        self._update_summary()
+        if self._timer_label_widget and self._timer_label_widget.winfo_exists():
+            self._timer_label_widget.config(
+                text=f"⏸ {self._format_time(task['timer_remaining_seconds'])}"
+            )
+        if task["timer_remaining_seconds"] <= 0:
+            self._timer_complete(task)
+        else:
+            after_id = self.root.after(1000, self._tick)
+            self._active_timer["after_id"] = after_id
+
+    def _stop_active_timer(self):
+        if self._active_timer:
+            if self._active_timer.get("after_id"):
+                self.root.after_cancel(self._active_timer["after_id"])
+            self._active_timer = None
+            self._timer_label_widget = None
+
+    def _timer_complete(self, task):
+        self._active_timer = None
+        self._timer_label_widget = None
+        today = str(date.today())
+        if task.get("until_date"):
+            steps = task.get("steps", 1)
+            task.setdefault("daily_done", {})[today] = steps
+        else:
+            task["steps_done"] = task.get("steps", 1)
+            task["done"] = True
+        self._refresh_tasks()
+        if self.service:
+            threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
 
     # ── Calendar picker ───────────────────────────────────────────────────────
 
@@ -589,10 +747,17 @@ class ToDoApp:
             self.pending_until_date = None
             self.until_btn.config(text="Until", fg=TEXT_COLOR, bg=BUTTON_COLOR)
 
+        if self.new_task_minutes > 0:
+            task["estimated_minutes"] = self.new_task_minutes
+            task["timer_remaining_seconds"] = self.new_task_minutes * 60
+            task["timer_elapsed_seconds"] = 0
+
         self.tasks.insert(0, task)
         self.entry.delete(0, "end")
         self.new_task_steps = 1
         self.steps_btn.config(text="1×", fg=TEXT_COLOR, bg=BUTTON_COLOR)
+        self.new_task_minutes = 0
+        self.timer_btn.config(text="⏱", fg=TEXT_COLOR, bg=BUTTON_COLOR)
         self._switch_tab("Today")
         if self.service:
             threading.Thread(target=self._push_task_to_google, args=(task,), daemon=True).start()
@@ -617,6 +782,8 @@ class ToDoApp:
                 if task["steps_done"] >= steps:
                     task["steps_done"] = steps
                     task["done"] = True
+        if self._active_timer and self._active_timer["task"] is task:
+            self._stop_active_timer()
         self._refresh_tasks()
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
@@ -647,6 +814,8 @@ class ToDoApp:
         self._refresh_tasks()
 
     def _delete_task(self, task):
+        if self._active_timer and self._active_timer["task"] is task:
+            self._stop_active_timer()
         self.tasks.remove(task)
         self._refresh_tasks()
         gid = task.get("google_id")
@@ -839,8 +1008,46 @@ class ToDoApp:
             days_lbl.pack(side="right")
             days_lbl.bind("<MouseWheel>", self._on_scroll)
 
-        # ── Move to Today button (Incomplete tab, non-recurring) ──────────────
+        # ── Timer display ─────────────────────────────────────────────────────
         extra_widgets = []
+        timer_widgets = []
+        if task.get("estimated_minutes"):
+            is_active  = self._active_timer and self._active_timer["task"] is task
+            is_running = is_active and self._active_timer["running"]
+            rem        = task.get("timer_remaining_seconds", 0)
+
+            if is_active:
+                add_btn = tk.Label(
+                    row, text="+5", bg=BG_COLOR, fg=TIMER_COLOR,
+                    font=("Helvetica", 9), cursor="hand2", padx=2
+                )
+                add_btn.pack(side="right")
+                add_btn.bind("<Button-1>", lambda e, t=task: self._add_timer_time(t, 5))
+                add_btn.bind("<MouseWheel>", self._on_scroll)
+                timer_widgets.append(add_btn)
+
+                icon = "⏸" if is_running else "▶"
+                timer_lbl = tk.Label(
+                    row, text=f"{icon} {self._format_time(rem)}", bg=BG_COLOR,
+                    fg=TIMER_COLOR, font=("Helvetica", 9, "bold"), cursor="hand2", padx=2
+                )
+                timer_lbl.pack(side="right")
+                timer_lbl.bind("<Button-1>", lambda e, t=task: self._toggle_timer(t))
+                timer_lbl.bind("<MouseWheel>", self._on_scroll)
+                timer_widgets.append(timer_lbl)
+                self._timer_label_widget = timer_lbl
+            else:
+                est = task.get("estimated_minutes", 0)
+                timer_lbl = tk.Label(
+                    row, text=f"⏱{est}m", bg=BG_COLOR, fg=DONE_COLOR,
+                    font=("Helvetica", 9), cursor="hand2", padx=2
+                )
+                timer_lbl.pack(side="right")
+                timer_lbl.bind("<Button-1>", lambda e, t=task: self._toggle_timer(t))
+                timer_lbl.bind("<MouseWheel>", self._on_scroll)
+                timer_widgets.append(timer_lbl)
+
+        # ── Move to Today button (Incomplete tab, non-recurring) ──────────────
         if self.active_tab == "Incomplete" and not is_recurring and task.get("created_date") != today_str:
             today_btn = tk.Label(
                 row, text="→ Today", bg=BG_COLOR, fg=SYNC_COLOR,
@@ -856,7 +1063,7 @@ class ToDoApp:
         text_font  = font.Font(family="Helvetica", size=11, overstrike=done)
         text_lbl = tk.Label(
             row, text=task["text"], bg=BG_COLOR, fg=text_color,
-            font=text_font, anchor="w", wraplength=160,
+            font=text_font, anchor="w", wraplength=140,
             justify="left", cursor="xterm"
         )
         text_lbl.pack(side="left", fill="x", expand=True)
@@ -865,7 +1072,7 @@ class ToDoApp:
         sep = tk.Frame(self.task_frame, bg=HEADER_COLOR, height=1)
         sep.pack(fill="x", padx=8)
 
-        for w in (row, prog_frame, text_lbl, del_btn, steps_lbl, sep, *extra_widgets):
+        for w in (row, prog_frame, text_lbl, del_btn, steps_lbl, sep, *extra_widgets, *timer_widgets):
             w.bind("<MouseWheel>", self._on_scroll)
 
     def _make_lifted_task_row(self, task):
