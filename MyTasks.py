@@ -182,9 +182,15 @@ class ToDoApp:
         fh_row3 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
         fh_row3.pack(fill="x", pady=(0, 5))
         self._focus_remaining_lbl = tk.Label(
-            fh_row3, text="⏱ --:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
-            font=("Helvetica", 12, "bold"), padx=8)
+            fh_row3, text="--:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
+            font=("Helvetica", 13, "bold"), padx=8)
         self._focus_remaining_lbl.pack(side="left")
+        self._focus_playpause_btn = tk.Button(
+            fh_row3, text="⏸", bg=TIMER_COLOR, fg="white",
+            font=("Helvetica", 9, "bold"), relief="flat", cursor="hand2",
+            padx=5, pady=1,
+            command=self._header_playpause)
+        self._focus_playpause_btn.pack(side="left", padx=(0, 3))
         tk.Button(fh_row3, text="■", bg="#c0392b", fg="white",
                   font=("Helvetica", 9, "bold"), relief="flat", cursor="hand2",
                   padx=5, pady=1,
@@ -335,6 +341,10 @@ class ToDoApp:
                 window.setLevel_(NSStatusWindowLevel)
                 window.orderFrontRegardless()
             NSApp.activateIgnoringOtherApps_(True)
+            # Restore focus header if a timer is still running
+            if self._active_timer:
+                self._enter_focus_mode()
+                self._update_focus_header()
         else:
             self.root.withdraw()
 
@@ -676,9 +686,21 @@ class ToDoApp:
         rem     = task.get("timer_remaining_seconds", 0)
         elapsed = task.get("timer_elapsed_seconds", 0)
         running = self._active_timer.get("running", False)
-        icon = "⏱" if running else "⏸"
-        self._focus_remaining_lbl.config(text=f"{icon} {self._format_time(rem)} 残り")
+        self._focus_remaining_lbl.config(text=self._format_time(rem))
         self._focus_elapsed_lbl.config(text=f"経過 {self._format_time(elapsed)}")
+        if self._focus_playpause_btn.winfo_exists():
+            if running:
+                self._focus_playpause_btn.config(text="⏸", bg=TIMER_COLOR)
+            else:
+                self._focus_playpause_btn.config(text="▶", bg=ACCENT_COLOR)
+
+    def _header_playpause(self):
+        if not self._active_timer:
+            return
+        if self._active_timer["running"]:
+            self._pause_timer()
+        else:
+            self._resume_timer()
 
     def _header_stop_timer(self):
         self._stop_active_timer()
