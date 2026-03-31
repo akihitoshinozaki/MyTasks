@@ -39,8 +39,9 @@ TAB_BG        = "#f5e6d3"
 TIMER_COLOR   = "#3d7a5e"
 WINDOW_WIDTH  = 300
 
-TABS          = ["Today", "Incomplete"]
-TIMER_PRESETS = [0, 5, 10, 15, 20, 25, 30, 45, 60]
+TABS            = ["Today", "Incomplete"]
+TIMER_PRESETS   = [0, 5, 10, 15, 20, 25, 30, 45, 60]
+INDENT_THRESHOLD = 70   # px from window left edge to trigger indent zone
 
 
 # ── Google Auth ──────────────────────────────────────────────────────────────
@@ -103,11 +104,14 @@ class ToDoApp:
         self._timer_label_widget  = None
         self._summary_label       = None
 
-        self._task_rows       = []
-        self._drag_task       = None
-        self._drag_source_idx = None
-        self._drag_target_idx = None
-        self._ghost           = None
+        self._task_rows        = []
+        self._drag_task        = None
+        self._drag_source_idx  = None
+        self._drag_target_idx  = None
+        self._drag_indent      = False
+        self._ghost            = None
+        self._ghost_frame      = None
+        self._ghost_text_lbl   = None
         self._ghost_w         = 0
         self._ghost_h         = 0
 
@@ -1032,7 +1036,7 @@ class ToDoApp:
             display.insert(tgt, None)
             for item in display:
                 if item is None:
-                    self._make_lifted_task_row(drag_task)
+                    self._make_lifted_task_row(drag_task, indent=self._drag_indent)
                 else:
                     self._make_task_row(item)
         elif not visible:
@@ -1088,7 +1092,7 @@ class ToDoApp:
         row.pack(fill="x", padx=(left_pad, 8))
         self._task_rows.append((task, row))
 
-        # ── Indent / outdent button ───────────────────────────────────────────
+        # ── Outdent button (subtasks only) ───────────────────────────────────
         if is_subtask:
             indent_btn = tk.Label(
                 row, text="⇤", bg=row_bg, fg=ACCENT_COLOR,
@@ -1098,13 +1102,8 @@ class ToDoApp:
             indent_btn.bind("<Button-1>", lambda e, t=task: self._outdent_task(t))
             indent_btn.bind("<MouseWheel>", self._on_scroll)
         else:
-            indent_btn = tk.Label(
-                row, text="⇥", bg=row_bg, fg=DONE_COLOR,
-                font=("Helvetica", 10), cursor="hand2", padx=2
-            )
+            indent_btn = tk.Label(row, text="", bg=row_bg, width=1)
             indent_btn.pack(side="left")
-            indent_btn.bind("<Button-1>", lambda e, t=task: self._indent_task(t))
-            indent_btn.bind("<MouseWheel>", self._on_scroll)
 
         # ── Drag handle ───────────────────────────────────────────────────────
         drag_handle = tk.Label(
@@ -1265,7 +1264,7 @@ class ToDoApp:
         for w in (row, prog_frame, text_lbl, del_btn, steps_lbl, sep, indent_btn, *extra_widgets, *timer_widgets):
             w.bind("<MouseWheel>", self._on_scroll)
 
-    def _make_lifted_task_row(self, task):
+    def _make_lifted_task_row(self, task, indent=False):
         is_recurring = bool(task.get("until_date"))
         today_str    = str(date.today())
 
@@ -1278,28 +1277,34 @@ class ToDoApp:
             steps_done = task.get("steps_done", 0)
             done       = task.get("done", False)
 
+        left_pad = 22 if indent else 6
         outer = tk.Frame(self.task_frame, bg=ACCENT_COLOR, pady=1)
-        outer.pack(fill="x", padx=6)
+        outer.pack(fill="x", padx=(left_pad, 6))
 
-        row = tk.Frame(outer, bg=HEADER_COLOR, pady=6)
+        row_bg = "#e0c9a8" if indent else HEADER_COLOR
+        row = tk.Frame(outer, bg=row_bg, pady=6)
         row.pack(fill="x", padx=1)
 
-        tk.Label(row, text="⠿", bg=HEADER_COLOR, fg=ACCENT_COLOR,
+        if indent:
+            tk.Label(row, text="↳", bg=row_bg, fg=ACCENT_COLOR,
+                     font=("Helvetica", 11, "bold"), padx=4).pack(side="left")
+
+        tk.Label(row, text="⠿", bg=row_bg, fg=ACCENT_COLOR,
                  font=("Helvetica", 12), padx=2).pack(side="left")
 
         if steps == 1:
             tk.Label(row, text="✓" if done else "○",
-                     bg=HEADER_COLOR, fg=ACCENT_COLOR if done else DONE_COLOR,
+                     bg=row_bg, fg=ACCENT_COLOR if done else DONE_COLOR,
                      font=("Helvetica", 13)).pack(side="left", padx=(0, 6))
         else:
             for i in range(steps):
                 tk.Label(row, text="●" if i < steps_done else "○",
-                         bg=HEADER_COLOR,
+                         bg=row_bg,
                          fg=ACCENT_COLOR if i < steps_done else STEP_EMPTY,
                          font=("Helvetica", 12)).pack(side="left")
 
         lf = font.Font(family="Helvetica", size=12, overstrike=done)
-        tk.Label(row, text=task["text"], bg=HEADER_COLOR,
+        tk.Label(row, text=task["text"], bg=row_bg,
                  fg=DONE_COLOR if done else TEXT_COLOR,
                  font=lf, anchor="w", wraplength=190,
                  justify="left").pack(side="left", fill="x", expand=True, padx=4)
@@ -1318,6 +1323,7 @@ class ToDoApp:
         self._drag_task = task
         self._drag_source_idx = visible.index(task)
         self._drag_target_idx = self._drag_source_idx
+        self._drag_indent = False
         self._create_ghost(task, event)
         self.root.bind("<B1-Motion>", self._drag_motion)
         self.root.bind("<ButtonRelease-1>", self._drag_end)
@@ -1346,6 +1352,7 @@ class ToDoApp:
 
         frame = tk.Frame(ghost, bg=HEADER_COLOR, pady=4, padx=6)
         frame.pack()
+        self._ghost_frame = frame
 
         tk.Label(frame, text="⠿", bg=HEADER_COLOR, fg=DONE_COLOR,
                  font=("Helvetica", 12), padx=2).pack(side="left")
@@ -1362,9 +1369,11 @@ class ToDoApp:
                          font=("Helvetica", 11)).pack(side="left")
 
         gf = font.Font(family="Helvetica", size=12, overstrike=done)
-        tk.Label(frame, text=task["text"], bg=HEADER_COLOR,
-                 fg=DONE_COLOR if done else TEXT_COLOR,
-                 font=gf, wraplength=180).pack(side="left", padx=4)
+        text_lbl = tk.Label(frame, text=task["text"], bg=HEADER_COLOR,
+                            fg=DONE_COLOR if done else TEXT_COLOR,
+                            font=gf, wraplength=180)
+        text_lbl.pack(side="left", padx=4)
+        self._ghost_text_lbl = text_lbl
 
         ghost.update_idletasks()
         self._ghost_w = max(ghost.winfo_reqwidth(), 180)
@@ -1390,9 +1399,31 @@ class ToDoApp:
                 target_idx = i
                 break
 
-        if target_idx != self._drag_target_idx:
+        new_indent = (cx - self.root.winfo_rootx()) > INDENT_THRESHOLD
+
+        changed = (target_idx != self._drag_target_idx or new_indent != self._drag_indent)
+        if changed:
             self._drag_target_idx = target_idx
+            self._drag_indent = new_indent
+            self._update_ghost_indent()
             self._refresh_tasks()
+
+    def _update_ghost_indent(self):
+        if not self._ghost or not self._ghost.winfo_exists():
+            return
+        indent = self._drag_indent
+        bg = "#e0c9a8" if indent else HEADER_COLOR
+        self._ghost.configure(bg=bg)
+        if self._ghost_frame and self._ghost_frame.winfo_exists():
+            self._ghost_frame.configure(bg=bg)
+            for child in self._ghost_frame.winfo_children():
+                try:
+                    child.configure(bg=bg)
+                except Exception:
+                    pass
+        if self._ghost_text_lbl and self._ghost_text_lbl.winfo_exists():
+            prefix = "↳ " if indent else ""
+            self._ghost_text_lbl.configure(text=prefix + self._drag_task["text"])
 
     def _drag_end(self, event):
         if self._drag_task is None:
@@ -1402,22 +1433,36 @@ class ToDoApp:
         if self._ghost:
             self._ghost.destroy()
             self._ghost = None
+        self._ghost_frame    = None
+        self._ghost_text_lbl = None
 
-        visible  = self._visible_tasks()
+        visible   = self._visible_tasks()
         drag_task = self._drag_task
+        did_indent = self._drag_indent
         tgt = self._drag_target_idx if self._drag_target_idx is not None else self._drag_source_idx
 
         visible_without = [t for t in visible if t is not drag_task]
         tgt = max(0, min(tgt, len(visible_without)))
-        new_visible = visible_without[:tgt] + [drag_task] + visible_without[tgt:]
 
+        if did_indent and tgt > 0:
+            parent_task = visible_without[tgt - 1]
+            pid = parent_task.get("google_id")
+            if pid and pid != drag_task.get("google_id"):
+                drag_task["parent_id"] = pid
+                if self.service:
+                    threading.Thread(
+                        target=self._update_task_on_google, args=(drag_task,), daemon=True
+                    ).start()
+
+        new_visible = visible_without[:tgt] + [drag_task] + visible_without[tgt:]
         visible_indices = sorted(self.tasks.index(t) for t in visible)
         for i, idx in enumerate(visible_indices):
             self.tasks[idx] = new_visible[i]
 
-        self._drag_task = None
-        self._drag_source_idx = None
-        self._drag_target_idx = None
+        self._drag_task        = None
+        self._drag_source_idx  = None
+        self._drag_target_idx  = None
+        self._drag_indent      = False
         self._refresh_tasks()
 
     # ── Scroll ────────────────────────────────────────────────────────────────
