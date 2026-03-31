@@ -142,18 +142,61 @@ class ToDoApp:
     # ── Build UI ─────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        # Title bar
+        # Title bar (contains normal header and focus header, only one visible at a time)
         title_bar = tk.Frame(self.root, bg=HEADER_COLOR)
         title_bar.pack(fill="x")
+        self._title_bar = title_bar
+
+        # ── Normal header ──────────────────────────────────────────────────────
+        self._normal_header = tk.Frame(title_bar, bg=HEADER_COLOR)
+        self._normal_header.pack(fill="x")
         tk.Label(
-            title_bar, text="  To-Do List", bg=HEADER_COLOR,
+            self._normal_header, text="  To-Do List", bg=HEADER_COLOR,
             fg=ACCENT_COLOR, font=("Helvetica", 13, "bold"), pady=8
         ).pack(side="left")
         self.sync_label = tk.Label(
-            title_bar, text="⟳ Connecting...", bg=HEADER_COLOR,
+            self._normal_header, text="⟳ Connecting...", bg=HEADER_COLOR,
             fg=DONE_COLOR, font=("Helvetica", 9), padx=8
         )
         self.sync_label.pack(side="right")
+
+        # ── Focus header (hidden until timer starts) ───────────────────────────
+        self._focus_header = tk.Frame(title_bar, bg=HEADER_COLOR)
+        # Row 1: "Today • 集中中" + sync label copy
+        fh_row1 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
+        fh_row1.pack(fill="x")
+        tk.Label(fh_row1, text="  Today  •  集中中", bg=HEADER_COLOR,
+                 fg=ACCENT_COLOR, font=("Helvetica", 11, "bold"), pady=5
+                 ).pack(side="left")
+        self._focus_sync_lbl = tk.Label(fh_row1, text="", bg=HEADER_COLOR,
+                                        fg=DONE_COLOR, font=("Helvetica", 9), padx=8)
+        self._focus_sync_lbl.pack(side="right")
+        # Row 2: task name
+        fh_row2 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
+        fh_row2.pack(fill="x")
+        self._focus_task_lbl = tk.Label(fh_row2, text="", bg=HEADER_COLOR,
+                                        fg=TEXT_COLOR, font=("Helvetica", 10),
+                                        padx=8, pady=1, anchor="w")
+        self._focus_task_lbl.pack(fill="x")
+        # Row 3: timer display + controls
+        fh_row3 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
+        fh_row3.pack(fill="x", pady=(0, 5))
+        self._focus_remaining_lbl = tk.Label(
+            fh_row3, text="⏱ --:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
+            font=("Helvetica", 12, "bold"), padx=8)
+        self._focus_remaining_lbl.pack(side="left")
+        tk.Button(fh_row3, text="■", bg="#c0392b", fg="white",
+                  font=("Helvetica", 9, "bold"), relief="flat", cursor="hand2",
+                  padx=5, pady=1,
+                  command=self._header_stop_timer).pack(side="left", padx=(0, 3))
+        tk.Button(fh_row3, text="+5", bg=BUTTON_COLOR, fg="black",
+                  font=("Helvetica", 9, "bold"), relief="flat", cursor="hand2",
+                  padx=5, pady=1,
+                  command=self._header_add_5).pack(side="left", padx=(0, 3))
+        self._focus_elapsed_lbl = tk.Label(
+            fh_row3, text="経過 0:00", bg=HEADER_COLOR, fg=DONE_COLOR,
+            font=("Helvetica", 9), padx=4)
+        self._focus_elapsed_lbl.pack(side="left")
 
         # Study time summary bar
         summary_bar = tk.Frame(self.root, bg=HEADER_COLOR)
@@ -302,7 +345,10 @@ class ToDoApp:
         self.root.geometry(f"{WINDOW_WIDTH}x460+{x}+50")
 
     def _set_sync_status(self, text, color=DONE_COLOR):
-        self.root.after(0, lambda: self.sync_label.config(text=text, fg=color))
+        def _apply():
+            self.sync_label.config(text=text, fg=color)
+            self._focus_sync_lbl.config(text=text, fg=color)
+        self.root.after(0, _apply)
 
     # ── Steps toggle ─────────────────────────────────────────────────────────
 
@@ -367,6 +413,7 @@ class ToDoApp:
             self._active_timer["running"] = False
         self._active_timer = {"task": task, "running": True, "after_id": None}
         self._timer_label_widget = None
+        self._enter_focus_mode()
         self._tick()
         self._refresh_tasks()
 
@@ -377,6 +424,7 @@ class ToDoApp:
             self.root.after_cancel(self._active_timer["after_id"])
         self._active_timer["running"] = False
         self._active_timer["after_id"] = None
+        self._update_focus_header()
         task = self._active_timer["task"]
         rem = task.get("timer_remaining_seconds", 0)
         if self._timer_label_widget and self._timer_label_widget.winfo_exists():
@@ -389,6 +437,7 @@ class ToDoApp:
             return
         self._active_timer["running"] = True
         self._tick()
+        self._update_focus_header()
         task = self._active_timer["task"]
         rem = task.get("timer_remaining_seconds", 0)
         if self._timer_label_widget and self._timer_label_widget.winfo_exists():
@@ -416,6 +465,7 @@ class ToDoApp:
         task["timer_elapsed_seconds"] = task.get("timer_elapsed_seconds", 0) + 1
         self._total_study_seconds += 1
         self._update_summary()
+        self._update_focus_header()
         if self._timer_label_widget and self._timer_label_widget.winfo_exists():
             self._timer_label_widget.config(
                 text=f"⏸ {self._format_time(task['timer_remaining_seconds'])}"
@@ -598,10 +648,51 @@ class ToDoApp:
                 self.root.after_cancel(self._active_timer["after_id"])
             self._active_timer = None
             self._timer_label_widget = None
+            self._exit_focus_mode()
+
+    # ── Focus header helpers ──────────────────────────────────────────────────
+
+    def _enter_focus_mode(self):
+        task = self._active_timer["task"] if self._active_timer else None
+        if not task:
+            return
+        name = task["text"]
+        if len(name) > 28:
+            name = name[:27] + "…"
+        self._focus_task_lbl.config(text=f"📚 {name}")
+        self._focus_sync_lbl.config(text=self.sync_label.cget("text"))
+        self._update_focus_header()
+        self._normal_header.pack_forget()
+        self._focus_header.pack(fill="x")
+
+    def _exit_focus_mode(self):
+        self._focus_header.pack_forget()
+        self._normal_header.pack(fill="x")
+
+    def _update_focus_header(self):
+        if not self._active_timer:
+            return
+        task = self._active_timer["task"]
+        rem     = task.get("timer_remaining_seconds", 0)
+        elapsed = task.get("timer_elapsed_seconds", 0)
+        running = self._active_timer.get("running", False)
+        icon = "⏱" if running else "⏸"
+        self._focus_remaining_lbl.config(text=f"{icon} {self._format_time(rem)} 残り")
+        self._focus_elapsed_lbl.config(text=f"経過 {self._format_time(elapsed)}")
+
+    def _header_stop_timer(self):
+        self._stop_active_timer()
+        self._refresh_tasks()
+
+    def _header_add_5(self):
+        if self._active_timer:
+            self._add_timer_time(self._active_timer["task"], 5)
+            self._update_focus_header()
 
     def _timer_complete(self, task):
         self._active_timer = None
         self._timer_label_widget = None
+        self._exit_focus_mode()
         today = str(date.today())
         if task.get("until_date"):
             steps = task.get("steps", 1)
