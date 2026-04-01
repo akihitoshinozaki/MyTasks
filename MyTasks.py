@@ -170,47 +170,69 @@ class ToDoApp:
 
         # ── Focus header (hidden until timer starts) ───────────────────────────
         self._focus_header = tk.Frame(title_bar, bg=HEADER_COLOR)
-        # Row 1: "Today • 集中中" + sync label copy
+
+        # Row 1: "Today • 集中中" + sync
         fh_row1 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
         fh_row1.pack(fill="x")
         tk.Label(fh_row1, text="  Today  •  集中中", bg=HEADER_COLOR,
-                 fg=ACCENT_COLOR, font=("Helvetica", 11, "bold"), pady=5
-                 ).pack(side="left")
+                 fg=ACCENT_COLOR, font=("Helvetica", 11, "bold"), pady=5).pack(side="left")
         self._focus_sync_lbl = tk.Label(fh_row1, text="", bg=HEADER_COLOR,
                                         fg=DONE_COLOR, font=("Helvetica", 9), padx=8)
         self._focus_sync_lbl.pack(side="right")
+
         # Row 2: task name
-        fh_row2 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
-        fh_row2.pack(fill="x")
-        self._focus_task_lbl = tk.Label(fh_row2, text="", bg=HEADER_COLOR,
-                                        fg=TEXT_COLOR, font=("Helvetica", 10),
-                                        padx=8, pady=1, anchor="w")
+        self._focus_task_lbl = tk.Label(self._focus_header, text="", bg=HEADER_COLOR,
+                                        fg=ACCENT_COLOR, font=("Helvetica", 10, "bold"),
+                                        padx=10, pady=0, anchor="w")
         self._focus_task_lbl.pack(fill="x")
-        # Row 3: timer display + controls
-        fh_row3 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
-        fh_row3.pack(fill="x", pady=(0, 5))
+
+        # Row 3: big time + elapsed (centred)
+        fh_time_row = tk.Frame(self._focus_header, bg=HEADER_COLOR)
+        fh_time_row.pack(fill="x", pady=(4, 0))
         self._focus_remaining_lbl = tk.Label(
-            fh_row3, text="--:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
-            font=("Helvetica", 13, "bold"), padx=8)
-        self._focus_remaining_lbl.pack(side="left")
-        self._focus_playpause_btn = tk.Button(
-            fh_row3, text="⏸", bg=TIMER_COLOR, fg="white",
-            font=("Helvetica", 9, "bold"), relief="flat", cursor="hand2",
-            padx=5, pady=1,
-            command=self._header_playpause)
-        self._focus_playpause_btn.pack(side="left", padx=(0, 3))
-        tk.Button(fh_row3, text="■", bg="#c0392b", fg="white",
-                  font=("Helvetica", 9, "bold"), relief="flat", cursor="hand2",
-                  padx=5, pady=1,
-                  command=self._header_stop_timer).pack(side="left", padx=(0, 3))
-        tk.Button(fh_row3, text="+5", bg=BUTTON_COLOR, fg="black",
-                  font=("Helvetica", 9, "bold"), relief="flat", cursor="hand2",
-                  padx=5, pady=1,
-                  command=self._header_add_5).pack(side="left", padx=(0, 3))
+            fh_time_row, text="--:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
+            font=("Helvetica", 22, "bold"))
+        self._focus_remaining_lbl.pack(side="left", expand=True)
         self._focus_elapsed_lbl = tk.Label(
-            fh_row3, text="経過 0:00", bg=HEADER_COLOR, fg=DONE_COLOR,
-            font=("Helvetica", 9), padx=4)
-        self._focus_elapsed_lbl.pack(side="left")
+            fh_time_row, text="経過\n0:00", bg=HEADER_COLOR, fg=DONE_COLOR,
+            font=("Helvetica", 8), padx=10, justify="center")
+        self._focus_elapsed_lbl.pack(side="right")
+
+        # Row 4: circular buttons (centred)
+        fh_btn_row = tk.Frame(self._focus_header, bg=HEADER_COLOR)
+        fh_btn_row.pack(pady=(6, 8))
+        R = 18   # circle radius
+        D = R * 2
+        def _circle_btn(parent, text, fill, fg, command, font_size=10):
+            cv = tk.Canvas(parent, width=D + 4, height=D + 4,
+                           bg=HEADER_COLOR, highlightthickness=0, cursor="hand2")
+            oid = cv.create_oval(2, 2, D + 2, D + 2, fill=fill, outline="", width=0)
+            tid = cv.create_text(D // 2 + 2, D // 2 + 2, text=text,
+                                 fill=fg, font=("Helvetica", font_size, "bold"))
+            cv.bind("<Button-1>", lambda e: command())
+            cv.bind("<Enter>",  lambda e: cv.itemconfig(oid, fill=_lighten(fill)))
+            cv.bind("<Leave>",  lambda e: cv.itemconfig(oid, fill=fill))
+            return cv, oid, tid
+
+        def _lighten(hex_color):
+            r = min(255, int(hex_color[1:3], 16) + 25)
+            g = min(255, int(hex_color[3:5], 16) + 25)
+            b = min(255, int(hex_color[5:7], 16) + 25)
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        pp_cv, self._pp_oval, self._pp_text = _circle_btn(
+            fh_btn_row, "⏸", TIMER_COLOR, "white", self._header_playpause, font_size=11)
+        pp_cv.pack(side="left", padx=6)
+        self._focus_playpause_btn = pp_cv
+        self._focus_playpause_fill_normal = TIMER_COLOR
+
+        stop_cv, _, _ = _circle_btn(
+            fh_btn_row, "■", DELETE_COLOR, "white", self._header_stop_timer, font_size=10)
+        stop_cv.pack(side="left", padx=6)
+
+        add5_cv, _, _ = _circle_btn(
+            fh_btn_row, "+5", BUTTON_COLOR, "white", self._header_add_5, font_size=9)
+        add5_cv.pack(side="left", padx=6)
 
         # Study time summary bar
         summary_bar = tk.Frame(self.root, bg=HEADER_COLOR)
@@ -707,12 +729,15 @@ class ToDoApp:
         elapsed = task.get("timer_elapsed_seconds", 0)
         running = self._active_timer.get("running", False)
         self._focus_remaining_lbl.config(text=self._format_time(rem))
-        self._focus_elapsed_lbl.config(text=f"経過 {self._format_time(elapsed)}")
+        self._focus_elapsed_lbl.config(text=f"経過\n{self._format_time(elapsed)}")
+        # Update circular play/pause button
         if self._focus_playpause_btn.winfo_exists():
             if running:
-                self._focus_playpause_btn.config(text="⏸", bg=TIMER_COLOR)
+                self._focus_playpause_btn.itemconfig(self._pp_oval, fill=TIMER_COLOR)
+                self._focus_playpause_btn.itemconfig(self._pp_text, text="⏸")
             else:
-                self._focus_playpause_btn.config(text="▶", bg=ACCENT_COLOR)
+                self._focus_playpause_btn.itemconfig(self._pp_oval, fill=ACCENT_COLOR)
+                self._focus_playpause_btn.itemconfig(self._pp_text, text="▶")
 
     def _header_playpause(self):
         if not self._active_timer:
