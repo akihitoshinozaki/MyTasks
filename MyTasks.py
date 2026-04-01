@@ -683,9 +683,9 @@ class ToDoApp:
         popup.update_idletasks()
         ax = anchor_widget.winfo_rootx()
         ay = anchor_widget.winfo_rooty()
-        pw = popup.winfo_width()
-        ph = popup.winfo_height()
-        popup.geometry(f"+{ax - pw + anchor_widget.winfo_width()}+{ay - ph - 4}")
+        pw = popup.winfo_reqwidth()
+        ph = popup.winfo_reqheight()
+        popup.geometry(f"{pw}x{ph}+{ax - pw + anchor_widget.winfo_width()}+{ay - ph - 4}")
         popup.bind("<FocusOut>", lambda e: popup.destroy())
         popup.focus_set()
 
