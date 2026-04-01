@@ -190,17 +190,36 @@ class ToDoApp:
                                         padx=10, pady=0, anchor="w")
         self._focus_task_lbl.pack(fill="x")
 
-        # Row 3: big time (fully centred)
-        self._focus_remaining_lbl = tk.Label(
-            self._focus_header, text="--:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
-            font=("Helvetica", 22, "bold"), anchor="center")
-        self._focus_remaining_lbl.pack(fill="x", pady=(4, 0))
+        # Row 3: big time — canvas so text is always at exact window centre
+        _cw = WINDOW_WIDTH
+        self._focus_clock_cv = tk.Canvas(
+            self._focus_header, bg=HEADER_COLOR, width=_cw, height=36,
+            highlightthickness=0)
+        self._focus_clock_cv.pack(pady=(4, 0))
+        self._focus_clock_item = self._focus_clock_cv.create_text(
+            _cw // 2, 18, text="--:--",
+            fill=TIMER_COLOR, font=("Helvetica", 22, "bold"), anchor="center")
 
-        # Row 3b: elapsed (centred, smaller)
-        self._focus_elapsed_lbl = tk.Label(
-            self._focus_header, text="経過 0:00", bg=HEADER_COLOR, fg=DONE_COLOR,
-            font=("Helvetica", 8), anchor="center")
-        self._focus_elapsed_lbl.pack(fill="x")
+        # Row 3b: elapsed — same canvas trick
+        self._focus_elapsed_cv = tk.Canvas(
+            self._focus_header, bg=HEADER_COLOR, width=_cw, height=14,
+            highlightthickness=0)
+        self._focus_elapsed_cv.pack()
+        self._focus_elapsed_item = self._focus_elapsed_cv.create_text(
+            _cw // 2, 7, text="経過 0:00",
+            fill=DONE_COLOR, font=("Helvetica", 8), anchor="center")
+
+        # keep label references pointing at canvas updaters
+        class _CanvasLabel:
+            def __init__(self, cv, item):
+                self._cv, self._item = cv, item
+            def config(self, text):
+                self._cv.itemconfig(self._item, text=text)
+            def winfo_exists(self):
+                return self._cv.winfo_exists()
+
+        self._focus_remaining_lbl = _CanvasLabel(self._focus_clock_cv, self._focus_clock_item)
+        self._focus_elapsed_lbl   = _CanvasLabel(self._focus_elapsed_cv, self._focus_elapsed_item)
 
         # Row 4: circular buttons (centred)
         fh_btn_row = tk.Frame(self._focus_header, bg=HEADER_COLOR)
