@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import font, messagebox
 import os
+import json
 import threading
 import time
 import subprocess
@@ -45,7 +46,8 @@ CARD_LIFT_SHADOW = "#a08050"
 # Card backgrounds per nesting depth
 DEPTH_BG      = ["#fdf6ec", "#f5e6d3", "#ecdcca", "#e3d2ba", "#dad0ae"]
 
-TABS            = ["Today", "Incomplete"]
+TABS            = ["Today", "Incomplete", "Stats"]
+STUDY_LOG_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "study_log.json")
 TIMER_PRESETS   = [0, 5, 10, 15, 20, 25, 30, 45, 60]
 INDENT_THRESHOLD = 70   # px from window left edge to trigger indent zone
 
@@ -712,16 +714,38 @@ class ToDoApp:
             self._update_focus_header()
 
     def _timer_complete(self, task):
-        self._active_timer = None
-        self._timer_label_widget = None
-        self._exit_focus_mode()
         today = str(date.today())
         if task.get("until_date"):
+            current = task.get("daily_done", {}).get(today, 0)
             steps = task.get("steps", 1)
-            task.setdefault("daily_done", {})[today] = steps
+            new_done = current + 1
+            task.setdefault("daily_done", {})[today] = new_done
+            all_done = new_done >= steps
         else:
-            task["steps_done"] = task.get("steps", 1)
-            task["done"] = True
+            steps = task.get("steps", 1)
+            new_done = task.get("steps_done", 0) + 1
+            task["steps_done"] = new_done
+            all_done = new_done >= steps
+            if all_done:
+                task["done"] = True
+
+        if all_done:
+            self._active_timer = None
+            self._timer_label_widget = None
+            self._exit_focus_mode()
+        else:
+            estimated = task.get("estimated_minutes", 0)
+            if estimated:
+                task["timer_remaining_seconds"] = estimated * 60
+                task["timer_elapsed_seconds"] = 0
+                self._active_timer = {"task": task, "running": True, "after_id": None}
+                self._timer_label_widget = None
+                self._tick()
+            else:
+                self._active_timer = None
+                self._timer_label_widget = None
+                self._exit_focus_mode()
+
         self._refresh_tasks()
         if self.service:
             threading.Thread(target=self._update_task_on_google, args=(task,), daemon=True).start()
