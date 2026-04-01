@@ -37,6 +37,10 @@ STEP_EMPTY    = "#c0a07a"
 STEP_FILL     = "#9b5e2e"
 UNTIL_COLOR   = "#5e7a9b"
 TAB_BG        = "#f5e6d3"
+# Segmented control (Apple-style tabs)
+SEG_CONTAINER = "#ccab84"
+SEG_ACTIVE_BG = "#fdf8f0"
+SEG_BORDER    = "#b8905a"
 TIMER_COLOR   = "#3d7a5e"
 WINDOW_WIDTH  = 300
 # Card UI
@@ -244,20 +248,18 @@ class ToDoApp:
         self._summary_label.pack(side="left")
 
         # Tab bar
-        tab_bar = tk.Frame(self.root, bg=HEADER_COLOR)
-        tab_bar.pack(fill="x")
+        # Apple-style segmented control
+        seg_outer = tk.Frame(self.root, bg=HEADER_COLOR, pady=5)
+        seg_outer.pack(fill="x")
+        self._seg_canvas = tk.Canvas(
+            seg_outer, bg=HEADER_COLOR, highlightthickness=0,
+            width=WINDOW_WIDTH, height=32
+        )
+        self._seg_canvas.pack()
+        self._seg_canvas.bind("<Button-1>", self._seg_click)
         self.tab_buttons = {}
-        for tab in TABS:
-            btn = tk.Label(
-                tab_bar, text=tab, bg=TAB_BG, fg=DONE_COLOR,
-                font=("Helvetica", 10), cursor="hand2",
-                padx=0, pady=6, anchor="center"
-            )
-            btn.pack(side="left", expand=True, fill="x")
-            btn.bind("<Button-1>", lambda e, t=tab: self._switch_tab(t))
-            self.tab_buttons[tab] = btn
 
-        tk.Frame(self.root, bg=ACCENT_COLOR, height=2).pack(fill="x")
+        tk.Frame(self.root, bg=ACCENT_COLOR, height=1).pack(fill="x")
 
         # Scrollable task area
         container = tk.Frame(self.root, bg=BG_COLOR)
@@ -940,13 +942,61 @@ class ToDoApp:
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
 
+    def _draw_tab_bar(self):
+        c = self._seg_canvas
+        c.delete("all")
+        n = len(TABS)
+        pad = 8
+        h = 28
+        y0 = 2
+        y1 = y0 + h
+        r_outer = 14
+        r_inner = 11
+        total_w = WINDOW_WIDTH - pad * 2
+        seg_w = total_w / n
+
+        # Outer container pill
+        _rounded_rect(c, pad, y0, pad + total_w, y1, r=r_outer,
+                      fill=SEG_CONTAINER, outline="")
+
+        # Active segment pill (shadow then fill for depth)
+        ai = TABS.index(self.active_tab)
+        ax0 = pad + ai * seg_w + 3
+        ax1 = ax0 + seg_w - 6
+        _rounded_rect(c, ax0, y0 + 2, ax1 + 1, y1 - 1, r=r_inner,
+                      fill=SEG_BORDER, outline="")
+        _rounded_rect(c, ax0, y0 + 1, ax1, y1 - 2, r=r_inner,
+                      fill=SEG_ACTIVE_BG, outline="")
+
+        # Dividers between inactive segments
+        for i in range(1, n):
+            if i != ai and i != ai + 1:
+                dx = pad + i * seg_w
+                c.create_line(dx, y0 + 6, dx, y1 - 6,
+                              fill=SEG_BORDER, width=1)
+
+        # Labels
+        for i, tab in enumerate(TABS):
+            tx = pad + (i + 0.5) * seg_w
+            ty = (y0 + y1) / 2
+            active = tab == self.active_tab
+            c.create_text(
+                tx, ty, text=tab,
+                fill=ACCENT_COLOR if active else TEXT_COLOR,
+                font=("Helvetica", 10, "bold") if active else ("Helvetica", 10)
+            )
+
+    def _seg_click(self, event):
+        n = len(TABS)
+        pad = 8
+        seg_w = (WINDOW_WIDTH - pad * 2) / n
+        i = int((event.x - pad) / seg_w)
+        if 0 <= i < n:
+            self._switch_tab(TABS[i])
+
     def _switch_tab(self, tab):
         self.active_tab = tab
-        for name, btn in self.tab_buttons.items():
-            if name == tab:
-                btn.config(bg=TAB_ACTIVE_BG, fg=ACCENT_COLOR, font=("Helvetica", 10, "bold"))
-            else:
-                btn.config(bg=TAB_BG, fg=DONE_COLOR, font=("Helvetica", 10))
+        self._draw_tab_bar()
         self.canvas.yview_moveto(0)
         if tab == "Stats":
             self._input_frame.pack_forget()
