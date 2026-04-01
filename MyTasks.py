@@ -190,17 +190,17 @@ class ToDoApp:
                                         padx=10, pady=0, anchor="w")
         self._focus_task_lbl.pack(fill="x")
 
-        # Row 3: big time + elapsed (centred)
-        fh_time_row = tk.Frame(self._focus_header, bg=HEADER_COLOR)
-        fh_time_row.pack(fill="x", pady=(4, 0))
+        # Row 3: big time (fully centred)
         self._focus_remaining_lbl = tk.Label(
-            fh_time_row, text="--:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
-            font=("Helvetica", 22, "bold"))
-        self._focus_remaining_lbl.pack(side="left", expand=True)
+            self._focus_header, text="--:--", bg=HEADER_COLOR, fg=TIMER_COLOR,
+            font=("Helvetica", 22, "bold"), anchor="center")
+        self._focus_remaining_lbl.pack(fill="x", pady=(4, 0))
+
+        # Row 3b: elapsed (centred, smaller)
         self._focus_elapsed_lbl = tk.Label(
-            fh_time_row, text="経過\n0:00", bg=HEADER_COLOR, fg=DONE_COLOR,
-            font=("Helvetica", 8), padx=10, justify="center")
-        self._focus_elapsed_lbl.pack(side="right")
+            self._focus_header, text="経過 0:00", bg=HEADER_COLOR, fg=DONE_COLOR,
+            font=("Helvetica", 8), anchor="center")
+        self._focus_elapsed_lbl.pack(fill="x")
 
         # Row 4: circular buttons (centred)
         fh_btn_row = tk.Frame(self._focus_header, bg=HEADER_COLOR)
@@ -731,7 +731,7 @@ class ToDoApp:
         elapsed = task.get("timer_elapsed_seconds", 0)
         running = self._active_timer.get("running", False)
         self._focus_remaining_lbl.config(text=self._format_time(rem))
-        self._focus_elapsed_lbl.config(text=f"経過\n{self._format_time(elapsed)}")
+        self._focus_elapsed_lbl.config(text=f"経過 {self._format_time(elapsed)}")
         # Update circular play/pause button
         if self._focus_playpause_btn.winfo_exists():
             if running:
