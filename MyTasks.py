@@ -1777,6 +1777,15 @@ class ToDoApp:
         card_cv, row = self._make_card_canvas(depth=depth, lifted=False)
         self._task_rows.append((task, row))
 
+        # ── Drag handle (leftmost) ────────────────────────────────────────────
+        drag_handle = tk.Label(
+            row, text="⠿", bg=row_bg, fg=DONE_COLOR,
+            font=("Helvetica", 12), cursor="fleur", padx=2
+        )
+        drag_handle.pack(side="left")
+        drag_handle.bind("<ButtonPress-1>", lambda e, t=task: self._drag_start(e, t))
+        drag_handle.bind("<MouseWheel>", self._on_scroll)
+
         # ── Outdent button (subtasks only) ───────────────────────────────────
         if is_subtask:
             indent_btn = tk.Label(
@@ -1786,18 +1795,6 @@ class ToDoApp:
             indent_btn.pack(side="left")
             indent_btn.bind("<Button-1>", lambda e, t=task: self._outdent_task(t))
             indent_btn.bind("<MouseWheel>", self._on_scroll)
-        else:
-            indent_btn = tk.Label(row, text="", bg=row_bg, width=1)
-            indent_btn.pack(side="left")
-
-        # ── Drag handle ───────────────────────────────────────────────────────
-        drag_handle = tk.Label(
-            row, text="⠿", bg=row_bg, fg=DONE_COLOR,
-            font=("Helvetica", 12), cursor="fleur", padx=2
-        )
-        drag_handle.pack(side="left")
-        drag_handle.bind("<ButtonPress-1>", lambda e, t=task: self._drag_start(e, t))
-        drag_handle.bind("<MouseWheel>", self._on_scroll)
 
         # ── Progress indicator ────────────────────────────────────────────────
         prog_cursor = "arrow" if is_locked else "hand2"
