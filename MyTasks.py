@@ -1344,7 +1344,7 @@ class ToDoApp:
         cv = tk.Canvas(self.task_frame, bg=BG_COLOR,
                        highlightthickness=0, bd=0,
                        width=card_w + sh_off + 4, height=52)
-        cv.pack(fill="x", padx=(8 + depth * 16, 8), pady=(5, 0))
+        cv.pack(fill="x", padx=(8 + depth * 16, 8), pady=(2, 0))
 
         frame = tk.Frame(cv, bg=depth_bg)
         cv.create_window(2, 2, window=frame, anchor="nw",
