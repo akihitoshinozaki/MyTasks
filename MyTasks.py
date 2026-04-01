@@ -254,15 +254,15 @@ class ToDoApp:
             b = min(255, int(hex_color[5:7], 16) + 25)
             return f"#{r:02x}{g:02x}{b:02x}"
 
+        stop_cv, _, _ = _circle_btn(
+            fh_btn_row, "■", DELETE_COLOR, "white", self._header_stop_timer, font_size=10)
+        stop_cv.pack(side="left", padx=6)
+
         pp_cv, self._pp_oval, self._pp_text = _circle_btn(
             fh_btn_row, "⏸", TIMER_COLOR, "white", self._header_playpause, font_size=11)
         pp_cv.pack(side="left", padx=6)
         self._focus_playpause_btn = pp_cv
         self._focus_playpause_fill_normal = TIMER_COLOR
-
-        stop_cv, _, _ = _circle_btn(
-            fh_btn_row, "■", DELETE_COLOR, "white", self._header_stop_timer, font_size=10)
-        stop_cv.pack(side="left", padx=6)
 
         add5_cv, _, _ = _circle_btn(
             fh_btn_row, "+5", BUTTON_COLOR, "white", self._header_add_5, font_size=9)
