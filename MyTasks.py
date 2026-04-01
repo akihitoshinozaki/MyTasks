@@ -433,6 +433,13 @@ class ToDoApp:
         self._active_timer = {"task": task, "running": True, "after_id": None}
         self._timer_label_widget = None
         self._enter_focus_mode()
+        threading.Thread(
+            target=lambda: subprocess.run(
+                ["afplay", "/System/Library/Sounds/Tink.aiff"],
+                capture_output=True
+            ),
+            daemon=True
+        ).start()
         self._tick()
         self._refresh_tasks()
 
