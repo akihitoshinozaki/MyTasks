@@ -126,6 +126,12 @@ class ToDoApp:
         self._timer_label_widget  = None
         self._summary_label       = None
 
+        self._stats_view         = "week"   # "day" | "week" | "month" | "year"
+        self._stats_week_offset  = 0        # 0=current week, -1=last week …
+        self._stats_month_offset = 0
+        self._stats_year_offset  = 0
+        self._study_log          = self._load_study_log()
+
         self._task_rows        = []
         self._drag_task        = None
         self._drag_source_idx  = None
@@ -256,6 +262,7 @@ class ToDoApp:
         # ── Input area ───────────────────────────────────────────────────────
         input_frame = tk.Frame(self.root, bg=HEADER_COLOR, pady=6)
         input_frame.pack(fill="x")
+        self._input_frame = input_frame
 
         self.entry = tk.Entry(
             input_frame, bg=ENTRY_BG, fg=TEXT_COLOR,
@@ -656,6 +663,10 @@ class ToDoApp:
 
     def _stop_active_timer(self):
         if self._active_timer:
+            task = self._active_timer["task"]
+            elapsed = task.get("timer_elapsed_seconds", 0)
+            if elapsed >= 30:
+                self._record_study_session(task, elapsed)
             if self._active_timer.get("after_id"):
                 self.root.after_cancel(self._active_timer["after_id"])
             self._active_timer = None
@@ -714,6 +725,8 @@ class ToDoApp:
             self._update_focus_header()
 
     def _timer_complete(self, task):
+        elapsed = task.get("timer_elapsed_seconds", 0)
+        self._record_study_session(task, elapsed)
         today = str(date.today())
         if task.get("until_date"):
             current = task.get("daily_done", {}).get(today, 0)
@@ -903,6 +916,10 @@ class ToDoApp:
             else:
                 btn.config(bg=TAB_BG, fg=DONE_COLOR, font=("Helvetica", 10))
         self.canvas.yview_moveto(0)
+        if tab == "Stats":
+            self._input_frame.pack_forget()
+        else:
+            self._input_frame.pack(fill="x")
         self._refresh_tasks()
 
     def _task_done_today(self, task):
@@ -1261,6 +1278,318 @@ class ToDoApp:
                         target=self._update_task_on_google, args=(t,), daemon=True
                     ).start()
 
+    # ── Study log ────────────────────────────────────────────────────────────
+
+    def _load_study_log(self):
+        try:
+            with open(STUDY_LOG_PATH) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_study_log(self):
+        try:
+            with open(STUDY_LOG_PATH, "w") as f:
+                json.dump(self._study_log, f)
+        except Exception:
+            pass
+
+    def _record_study_session(self, task, elapsed_seconds):
+        if elapsed_seconds < 30:
+            return
+        today = str(date.today())
+        self._study_log.setdefault(today, []).append({
+            "task":    task.get("text", ""),
+            "seconds": int(elapsed_seconds),
+        })
+        threading.Thread(target=self._save_study_log, daemon=True).start()
+
+    # ── Stats rendering ───────────────────────────────────────────────────────
+
+    def _log_day_seconds(self, d):
+        """Total study seconds for a date string YYYY-MM-DD."""
+        return sum(s.get("seconds", 0) for s in self._study_log.get(d, []))
+
+    def _log_day_sessions(self, d):
+        return len(self._study_log.get(d, []))
+
+    def _set_stats_view(self, view):
+        self._stats_view = view
+        self._refresh_tasks()
+
+    def _render_stats(self):
+        W = WINDOW_WIDTH - 16
+
+        # ── Sub-view toggle ────────────────────────────────────────────────
+        nav = tk.Frame(self.task_frame, bg=BG_COLOR)
+        nav.pack(fill="x", padx=8, pady=(10, 6))
+        for v in ("Day", "Week", "Month", "Year"):
+            active = (v.lower() == self._stats_view)
+            lbl = tk.Label(nav, text=v,
+                           bg=ACCENT_COLOR if active else HEADER_COLOR,
+                           fg="white" if active else TEXT_COLOR,
+                           font=("Helvetica", 10, "bold" if active else "normal"),
+                           padx=10, pady=4, cursor="hand2", relief="flat")
+            lbl.pack(side="left", padx=2)
+            lbl.bind("<Button-1>", lambda e, vv=v.lower(): self._set_stats_view(vv))
+
+        if   self._stats_view == "day":   self._render_stats_day(W)
+        elif self._stats_view == "week":  self._render_stats_week(W)
+        elif self._stats_view == "month": self._render_stats_month(W)
+        elif self._stats_view == "year":  self._render_stats_year(W)
+
+    # ── Day ───────────────────────────────────────────────────────────────────
+    def _render_stats_day(self, W):
+        today = date.today() + timedelta(days=self._stats_week_offset)  # reuse offset
+        d = str(today)
+        sessions = self._study_log.get(d, [])
+        total_sec = sum(s.get("seconds", 0) for s in sessions)
+
+        # Navigation row
+        self._stats_nav_row(
+            f"{today.strftime('%B %-d, %Y')}",
+            lambda: self._stats_nav(-1, "day"), lambda: self._stats_nav(1, "day")
+        )
+
+        # Summary
+        summary = tk.Label(self.task_frame,
+                           text=f"Total: {self._format_study_time(total_sec)}  •  {len(sessions)} sessions",
+                           bg=BG_COLOR, fg=TIMER_COLOR,
+                           font=("Helvetica", 11, "bold"))
+        summary.pack(pady=(4, 8))
+
+        if not sessions:
+            tk.Label(self.task_frame, text="No study sessions recorded.",
+                     bg=BG_COLOR, fg=DONE_COLOR, font=("Helvetica", 10)).pack(pady=20)
+            return
+
+        for s in sessions:
+            row = tk.Frame(self.task_frame, bg=HEADER_COLOR, pady=4, padx=8)
+            row.pack(fill="x", padx=8, pady=2)
+            tk.Label(row, text=s.get("task", ""), bg=HEADER_COLOR,
+                     fg=TEXT_COLOR, font=("Helvetica", 10),
+                     anchor="w").pack(side="left", fill="x", expand=True)
+            tk.Label(row, text=self._format_study_time(s.get("seconds", 0)),
+                     bg=HEADER_COLOR, fg=TIMER_COLOR,
+                     font=("Helvetica", 10, "bold")).pack(side="right")
+
+    # ── Week ──────────────────────────────────────────────────────────────────
+    def _render_stats_week(self, W):
+        today = date.today()
+        week_start = today - timedelta(days=today.weekday()) + timedelta(weeks=self._stats_week_offset)
+        week_end   = week_start + timedelta(days=6)
+
+        self._stats_nav_row(
+            f"{week_start.strftime('%b %-d')} – {week_end.strftime('%b %-d, %Y')}",
+            lambda: self._stats_nav(-1, "week"), lambda: self._stats_nav(1, "week")
+        )
+
+        days     = [week_start + timedelta(days=i) for i in range(7)]
+        day_secs = [self._log_day_seconds(str(d)) for d in days]
+        day_sess = [self._log_day_sessions(str(d)) for d in days]
+        max_sec  = max(day_secs) if any(day_secs) else 1
+
+        BAR_H    = 90
+        bar_w    = (W - 16) // 7
+        cv_w     = bar_w * 7 + 16
+        cv_h     = BAR_H + 44
+        cv = tk.Canvas(self.task_frame, bg=BG_COLOR, width=cv_w, height=cv_h,
+                       highlightthickness=0)
+        cv.pack(pady=(6, 4))
+
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for i, (d, secs, sess) in enumerate(zip(days, day_secs, day_sess)):
+            x0 = 8 + i * bar_w
+            x_mid = x0 + bar_w // 2
+            is_today = (d == today)
+            label_fg = ACCENT_COLOR if is_today else DONE_COLOR
+
+            # bar
+            if secs > 0:
+                bh = max(6, int(BAR_H * secs / max_sec))
+                cv.create_rectangle(x0 + 4, BAR_H - bh + 2, x0 + bar_w - 4, BAR_H + 2,
+                                    fill=TIMER_COLOR, outline="", width=0)
+                # session count
+                cv.create_text(x_mid, BAR_H - bh - 4, text=str(sess),
+                               fill=ACCENT_COLOR, font=("Helvetica", 8, "bold"))
+
+            # day name
+            cv.create_text(x_mid, BAR_H + 12, text=day_names[i],
+                           fill=label_fg,
+                           font=("Helvetica", 9, "bold" if is_today else "normal"))
+            # time label
+            cv.create_text(x_mid, BAR_H + 26, text=self._fmt_mins(secs) if secs else "",
+                           fill=TIMER_COLOR, font=("Helvetica", 8))
+
+        # week total
+        total_sec = sum(day_secs)
+        tk.Label(self.task_frame,
+                 text=f"Week total: {self._format_study_time(total_sec)}",
+                 bg=BG_COLOR, fg=DONE_COLOR, font=("Helvetica", 9)).pack(pady=(0, 8))
+
+    # ── Month ─────────────────────────────────────────────────────────────────
+    def _render_stats_month(self, W):
+        today = date.today()
+        # derive target month
+        y, m = today.year, today.month
+        offset = self._stats_month_offset
+        m += offset
+        while m > 12: m -= 12; y += 1
+        while m < 1:  m += 12; y -= 1
+
+        self._stats_nav_row(
+            f"{date(y, m, 1).strftime('%B %Y')}",
+            lambda: self._stats_nav(-1, "month"), lambda: self._stats_nav(1, "month")
+        )
+
+        _, days_in_month = _cal.monthrange(y, m)
+        first_wd = date(y, m, 1).weekday()   # 0=Mon
+
+        cell_w = (W - 16) // 7
+        cell_h = 34
+        rows   = (first_wd + days_in_month + 6) // 7
+        cv_h   = 20 + rows * cell_h + 4
+        cv = tk.Canvas(self.task_frame, bg=BG_COLOR, width=W, height=cv_h,
+                       highlightthickness=0)
+        cv.pack(pady=(4, 4))
+
+        # Day-of-week headers
+        for i, dn in enumerate(["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]):
+            cv.create_text(8 + i * cell_w + cell_w // 2, 10,
+                           text=dn, fill=DONE_COLOR, font=("Helvetica", 8, "bold"))
+
+        # Find max seconds this month for intensity scaling
+        month_secs = []
+        for day in range(1, days_in_month + 1):
+            month_secs.append(self._log_day_seconds(str(date(y, m, day))))
+        max_sec = max(month_secs) if any(month_secs) else 1
+
+        def intensity_color(secs):
+            if secs == 0:
+                return HEADER_COLOR
+            ratio = min(1.0, secs / max_sec)
+            # blend from HEADER_COLOR to TIMER_COLOR (#3d7a5e)
+            r0, g0, b0 = 0xdf, 0xc9, 0xa8
+            r1, g1, b1 = 0x3d, 0x7a, 0x5e
+            r = int(r0 + (r1 - r0) * ratio)
+            g = int(g0 + (g1 - g0) * ratio)
+            b = int(b0 + (b1 - b0) * ratio)
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        for day in range(1, days_in_month + 1):
+            wd     = (first_wd + day - 1) % 7
+            row_i  = (first_wd + day - 1) // 7
+            x0     = 8 + wd * cell_w
+            y0     = 20 + row_i * cell_h
+            d_str  = str(date(y, m, day))
+            secs   = self._log_day_seconds(d_str)
+            sess   = self._log_day_sessions(d_str)
+            is_today_cell = (date(y, m, day) == today)
+            bg = intensity_color(secs)
+
+            cv.create_rectangle(x0 + 1, y0 + 1, x0 + cell_w - 1, y0 + cell_h - 1,
+                                 fill=bg, outline=ACCENT_COLOR if is_today_cell else "",
+                                 width=2 if is_today_cell else 0)
+            cv.create_text(x0 + cell_w // 2, y0 + 10,
+                           text=str(day),
+                           fill="white" if secs > max_sec * 0.5 else TEXT_COLOR,
+                           font=("Helvetica", 9, "bold" if is_today_cell else "normal"))
+            if sess:
+                cv.create_text(x0 + cell_w // 2, y0 + 23,
+                               text=f"{sess}x",
+                               fill="white" if secs > max_sec * 0.5 else TIMER_COLOR,
+                               font=("Helvetica", 7))
+
+        # month total
+        total_sec = sum(month_secs)
+        tk.Label(self.task_frame,
+                 text=f"Month total: {self._format_study_time(total_sec)}",
+                 bg=BG_COLOR, fg=DONE_COLOR, font=("Helvetica", 9)).pack(pady=(0, 8))
+
+    # ── Year ──────────────────────────────────────────────────────────────────
+    def _render_stats_year(self, W):
+        today = date.today()
+        y = today.year + self._stats_year_offset
+
+        self._stats_nav_row(
+            str(y),
+            lambda: self._stats_nav(-1, "year"), lambda: self._stats_nav(1, "year")
+        )
+
+        month_secs  = []
+        month_sess  = []
+        for m in range(1, 13):
+            _, days_in = _cal.monthrange(y, m)
+            secs = sum(self._log_day_seconds(str(date(y, m, d))) for d in range(1, days_in + 1))
+            sess = sum(self._log_day_sessions(str(date(y, m, d))) for d in range(1, days_in + 1))
+            month_secs.append(secs)
+            month_sess.append(sess)
+
+        max_sec = max(month_secs) if any(month_secs) else 1
+
+        BAR_H   = 80
+        bar_w   = (W - 16) // 12
+        cv_w    = bar_w * 12 + 16
+        cv_h    = BAR_H + 44
+        cv = tk.Canvas(self.task_frame, bg=BG_COLOR, width=cv_w, height=cv_h,
+                       highlightthickness=0)
+        cv.pack(pady=(6, 4))
+
+        month_names = ["Jan","Feb","Mar","Apr","May","Jun",
+                       "Jul","Aug","Sep","Oct","Nov","Dec"]
+        for i, (secs, sess) in enumerate(zip(month_secs, month_sess)):
+            x0 = 8 + i * bar_w
+            x_mid = x0 + bar_w // 2
+            is_cur = (i + 1 == today.month and y == today.year)
+            if secs > 0:
+                bh = max(4, int(BAR_H * secs / max_sec))
+                cv.create_rectangle(x0 + 2, BAR_H - bh + 2, x0 + bar_w - 2, BAR_H + 2,
+                                    fill=TIMER_COLOR, outline="")
+                cv.create_text(x_mid, BAR_H - bh - 5, text=str(sess),
+                               fill=ACCENT_COLOR, font=("Helvetica", 7, "bold"))
+            cv.create_text(x_mid, BAR_H + 12, text=month_names[i],
+                           fill=ACCENT_COLOR if is_cur else DONE_COLOR,
+                           font=("Helvetica", 8, "bold" if is_cur else "normal"))
+            if secs:
+                cv.create_text(x_mid, BAR_H + 26, text=self._fmt_mins(secs),
+                               fill=TIMER_COLOR, font=("Helvetica", 7))
+
+        total_sec = sum(month_secs)
+        tk.Label(self.task_frame,
+                 text=f"Year total: {self._format_study_time(total_sec)}",
+                 bg=BG_COLOR, fg=DONE_COLOR, font=("Helvetica", 9)).pack(pady=(0, 8))
+
+    # ── Stats helpers ─────────────────────────────────────────────────────────
+    def _stats_nav_row(self, title, on_prev, on_next):
+        row = tk.Frame(self.task_frame, bg=BG_COLOR)
+        row.pack(fill="x", padx=8, pady=(2, 0))
+        tk.Label(row, text="‹", bg=BG_COLOR, fg=ACCENT_COLOR,
+                 font=("Helvetica", 16), cursor="hand2").pack(side="left", padx=4)
+        tk.Label(row, text=title, bg=BG_COLOR, fg=TEXT_COLOR,
+                 font=("Helvetica", 11, "bold")).pack(side="left", expand=True)
+        tk.Label(row, text="›", bg=BG_COLOR, fg=ACCENT_COLOR,
+                 font=("Helvetica", 16), cursor="hand2").pack(side="right", padx=4)
+        # bind after packing so we can reference the labels
+        row.winfo_children()[0].bind("<Button-1>", lambda e: on_prev())
+        row.winfo_children()[2].bind("<Button-1>", lambda e: on_next())
+
+    def _stats_nav(self, delta, view):
+        if view == "day":
+            self._stats_week_offset += delta   # reuse for day
+        elif view == "week":
+            self._stats_week_offset += delta
+        elif view == "month":
+            self._stats_month_offset += delta
+        elif view == "year":
+            self._stats_year_offset += delta
+        self._refresh_tasks()
+
+    def _fmt_mins(self, seconds):
+        m = seconds // 60
+        if m >= 60:
+            return f"{m//60}h{m%60:02d}m" if m % 60 else f"{m//60}h"
+        return f"{m}m"
+
     # ── Render ────────────────────────────────────────────────────────────────
 
     def _refresh_tasks(self):
@@ -1268,6 +1597,11 @@ class ToDoApp:
             widget.destroy()
 
         self._task_rows = []
+
+        if self.active_tab == "Stats":
+            self._render_stats()
+            return
+
         visible = self._visible_tasks()
 
         if self._drag_task is not None and self._drag_task in visible:
@@ -1293,6 +1627,7 @@ class ToDoApp:
                 "Today":      "No tasks for today.\nAdd one below!",
                 "Incomplete": "No incomplete tasks.",
                 "Done":       "No completed tasks yet.",
+                "Stats":      "",
             }
             lbl = tk.Label(
                 self.task_frame, text=empty_msgs[self.active_tab],
