@@ -231,8 +231,10 @@ class ToDoApp:
         self._focus_elapsed_lbl   = _CanvasLabel(self._focus_elapsed_cv, self._focus_elapsed_item)
 
         # Row 4: circular buttons (centred)
-        fh_btn_row = tk.Frame(self._focus_header, bg=HEADER_COLOR)
-        fh_btn_row.pack(pady=(6, 8))
+        fh_btn_outer = tk.Frame(self._focus_header, bg=HEADER_COLOR)
+        fh_btn_outer.pack(fill="x", pady=(6, 8))
+        fh_btn_row = tk.Frame(fh_btn_outer, bg=HEADER_COLOR)
+        fh_btn_row.pack(anchor="center")
         R = 18   # circle radius
         D = R * 2
         def _circle_btn(parent, text, fill, fg, command, font_size=10):
@@ -1940,7 +1942,8 @@ class ToDoApp:
         text_lbl.pack(side="left", fill="x", expand=True)
         text_lbl.bind("<Button-1>", lambda e, t=task, r=row, l=text_lbl: self._start_edit(t, r, l))
 
-        for w in (card_cv, row, prog_frame, text_lbl, del_btn, steps_lbl, indent_btn, *extra_widgets, *timer_widgets):
+        extra_scroll = [indent_btn] if is_subtask else []
+        for w in (card_cv, row, prog_frame, text_lbl, del_btn, steps_lbl, *extra_scroll, *extra_widgets, *timer_widgets):
             w.bind("<MouseWheel>", self._on_scroll)
 
     def _make_lifted_task_row(self, task, target_depth=None):
