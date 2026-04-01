@@ -129,6 +129,7 @@ class ToDoApp:
         self._total_study_seconds = 0
         self._timer_label_widget  = None
         self._summary_label       = None
+        self._focus_study_lbl     = None
 
         self._stats_view         = "week"   # "day" | "week" | "month" | "year"
         self._stats_week_offset  = 0        # 0=current week, -1=last week …
@@ -171,18 +172,26 @@ class ToDoApp:
             fg=DONE_COLOR, font=("Helvetica", 9), padx=8
         )
         self.sync_label.pack(side="right")
+        self._summary_label = tk.Label(
+            self._normal_header, text="今日: 0分", bg=HEADER_COLOR,
+            fg=TIMER_COLOR, font=("Helvetica", 11, "bold"), padx=6
+        )
+        self._summary_label.pack(side="right")
 
         # ── Focus header (hidden until timer starts) ───────────────────────────
         self._focus_header = tk.Frame(title_bar, bg=HEADER_COLOR)
 
-        # Row 1: "Today • 集中中" + sync
+        # Row 1: "Today • 集中中" + study total + sync
         fh_row1 = tk.Frame(self._focus_header, bg=HEADER_COLOR)
         fh_row1.pack(fill="x")
         tk.Label(fh_row1, text="  Today  •  集中中", bg=HEADER_COLOR,
-                 fg=ACCENT_COLOR, font=("Helvetica", 11, "bold"), pady=5).pack(side="left")
+                 fg=ACCENT_COLOR, font=("Helvetica", 13, "bold"), pady=5).pack(side="left")
         self._focus_sync_lbl = tk.Label(fh_row1, text="", bg=HEADER_COLOR,
                                         fg=DONE_COLOR, font=("Helvetica", 9), padx=8)
         self._focus_sync_lbl.pack(side="right")
+        self._focus_study_lbl = tk.Label(fh_row1, text="今日: 0分", bg=HEADER_COLOR,
+                                         fg=TIMER_COLOR, font=("Helvetica", 11, "bold"), padx=6)
+        self._focus_study_lbl.pack(side="right")
 
         # Row 2: task name
         self._focus_task_lbl = tk.Label(self._focus_header, text="", bg=HEADER_COLOR,
@@ -256,15 +265,6 @@ class ToDoApp:
         add5_cv, _, _ = _circle_btn(
             fh_btn_row, "+5", BUTTON_COLOR, "white", self._header_add_5, font_size=9)
         add5_cv.pack(side="left", padx=6)
-
-        # Study time summary bar
-        summary_bar = tk.Frame(self.root, bg=HEADER_COLOR)
-        summary_bar.pack(fill="x")
-        self._summary_label = tk.Label(
-            summary_bar, text="今日の学習: 0分", bg=HEADER_COLOR,
-            fg=TIMER_COLOR, font=("Helvetica", 9, "bold"), padx=8, pady=2
-        )
-        self._summary_label.pack(side="left")
 
         # Tab bar
         # Apple-style segmented control
@@ -452,10 +452,11 @@ class ToDoApp:
         return f"{h}時間{m}分" if m else f"{h}時間"
 
     def _update_summary(self):
+        text = f"今日: {self._format_study_time(self._total_study_seconds)}"
         if self._summary_label and self._summary_label.winfo_exists():
-            self._summary_label.config(
-                text=f"今日の学習: {self._format_study_time(self._total_study_seconds)}"
-            )
+            self._summary_label.config(text=text)
+        if self._focus_study_lbl and self._focus_study_lbl.winfo_exists():
+            self._focus_study_lbl.config(text=text)
 
     # ── Timer control ─────────────────────────────────────────────────────────
 
