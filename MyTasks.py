@@ -1789,6 +1789,7 @@ class ToDoApp:
         drag_handle.bind("<MouseWheel>", self._on_scroll)
 
         # ── Outdent button (subtasks only) ───────────────────────────────────
+        indent_btn = None
         if is_subtask:
             indent_btn = tk.Label(
                 row, text="⇤", bg=row_bg, fg=ACCENT_COLOR,
@@ -1942,7 +1943,7 @@ class ToDoApp:
         text_lbl.pack(side="left", fill="x", expand=True)
         text_lbl.bind("<Button-1>", lambda e, t=task, r=row, l=text_lbl: self._start_edit(t, r, l))
 
-        extra_scroll = [indent_btn] if is_subtask else []
+        extra_scroll = [indent_btn] if indent_btn else []
         for w in (card_cv, row, prog_frame, text_lbl, del_btn, steps_lbl, *extra_scroll, *extra_widgets, *timer_widgets):
             w.bind("<MouseWheel>", self._on_scroll)
 
