@@ -122,7 +122,9 @@ class ToDoApp:
         self._stop_sync   = False
         self.new_task_steps   = 1
         self.pending_until_date = None
-        self._cal_popup   = None
+        self._cal_popup        = None
+        self._timer_popup      = None
+        self._timer_popup_after = None
 
         self.new_task_minutes     = 0
         self._active_timer        = None   # {"task": task, "after_id": id, "running": bool}
@@ -429,15 +431,55 @@ class ToDoApp:
     # ── Timer preset toggle ───────────────────────────────────────────────────
 
     def _cycle_timer_preset(self):
-        idx = TIMER_PRESETS.index(self.new_task_minutes) if self.new_task_minutes in TIMER_PRESETS else 0
-        self.new_task_minutes = TIMER_PRESETS[(idx + 1) % len(TIMER_PRESETS)]
-        if self.new_task_minutes == 0:
+        # Toggle popup: dismiss if already open
+        if self._timer_popup and self._timer_popup.winfo_exists():
+            self._dismiss_timer_popup()
+            return
+        popup = tk.Toplevel(self.root)
+        popup.title("")
+        popup.resizable(False, False)
+        popup.configure(bg=HEADER_COLOR)
+        popup.attributes("-topmost", True)
+        popup.overrideredirect(True)
+        self._timer_popup = popup
+
+        # Position above the timer button
+        self.timer_btn.update_idletasks()
+        bx = self.timer_btn.winfo_rootx()
+        by = self.timer_btn.winfo_rooty()
+        popup.geometry(f"+{bx}+{by - 38}")
+
+        for m in TIMER_PRESETS:
+            label = "⏱" if m == 0 else f"{m}m"
+            is_selected = (m == self.new_task_minutes)
+            btn = tk.Button(
+                popup, text=label,
+                bg=TIMER_COLOR if is_selected else BUTTON_COLOR,
+                fg=BG_COLOR if is_selected else "black",
+                relief="flat", font=("Helvetica", 9, "bold"),
+                cursor="hand2", padx=4, pady=3, bd=0,
+                activebackground=TIMER_COLOR, activeforeground=BG_COLOR,
+                command=lambda v=m: self._select_timer_preset(v)
+            )
+            btn.pack(side="left", padx=1)
+
+        self._timer_popup_after = self.root.after(3000, self._dismiss_timer_popup)
+
+    def _select_timer_preset(self, minutes):
+        self.new_task_minutes = minutes
+        if minutes == 0:
             self.timer_btn.config(text="⏱", fg="black", bg=BUTTON_COLOR)
         else:
-            self.timer_btn.config(
-                text=f"{self.new_task_minutes}m",
-                fg=BG_COLOR, bg=TIMER_COLOR
-            )
+            self.timer_btn.config(text=f"{minutes}m", fg=BG_COLOR, bg=TIMER_COLOR)
+        self._dismiss_timer_popup()
+
+    def _dismiss_timer_popup(self):
+        if self._timer_popup_after:
+            self.root.after_cancel(self._timer_popup_after)
+            self._timer_popup_after = None
+        if self._timer_popup and self._timer_popup.winfo_exists():
+            self._timer_popup.destroy()
+        self._timer_popup = None
 
     # ── Timer helpers ─────────────────────────────────────────────────────────
 
