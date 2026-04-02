@@ -443,25 +443,27 @@ class ToDoApp:
         popup.overrideredirect(True)
         self._timer_popup = popup
 
-        # Position above the timer button
-        self.timer_btn.update_idletasks()
-        bx = self.timer_btn.winfo_rootx()
-        by = self.timer_btn.winfo_rooty()
-        popup.geometry(f"+{bx}+{by - 38}")
+        row_frame = tk.Frame(popup, bg=HEADER_COLOR, padx=6, pady=6)
+        row_frame.pack()
 
         for m in TIMER_PRESETS:
-            label = "⏱" if m == 0 else f"{m}m"
-            is_selected = (m == self.new_task_minutes)
+            label = "off" if m == 0 else f"{m}m"
             btn = tk.Button(
-                popup, text=label,
-                bg=TIMER_COLOR if is_selected else BUTTON_COLOR,
-                fg=BG_COLOR if is_selected else "black",
-                relief="flat", font=("Helvetica", 9, "bold"),
-                cursor="hand2", padx=4, pady=3, bd=0,
-                activebackground=TIMER_COLOR, activeforeground=BG_COLOR,
+                row_frame, text=label, bg=BUTTON_COLOR, fg=TEXT_COLOR,
+                relief="flat", font=("Helvetica", 10, "bold"),
+                cursor="hand2", padx=5, pady=4, bd=0,
+                activebackground=ACCENT_COLOR, activeforeground=BG_COLOR,
                 command=lambda v=m: self._select_timer_preset(v)
             )
-            btn.pack(side="left", padx=1)
+            btn.pack(side="left", padx=2)
+
+        popup.update_idletasks()
+        self.timer_btn.update_idletasks()
+        ax = self.timer_btn.winfo_rootx()
+        ay = self.timer_btn.winfo_rooty()
+        pw = popup.winfo_reqwidth()
+        ph = popup.winfo_reqheight()
+        popup.geometry(f"{pw}x{ph}+{ax - pw + self.timer_btn.winfo_width()}+{ay - ph - 4}")
 
         self._timer_popup_after = self.root.after(3000, self._dismiss_timer_popup)
 
