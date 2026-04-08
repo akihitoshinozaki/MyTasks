@@ -520,6 +520,10 @@ class ToDoApp:
             if self._active_timer.get("after_id"):
                 self.root.after_cancel(self._active_timer["after_id"])
             self._active_timer["running"] = False
+        # If timer previously completed (remaining hit 0), reset to estimated duration
+        if task.get("timer_remaining_seconds", 0) <= 0:
+            task["timer_remaining_seconds"] = task.get("estimated_minutes", 0) * 60
+            task["timer_elapsed_seconds"] = 0
         self._active_timer = {"task": task, "running": True, "after_id": None}
         self._timer_label_widget = None
         self._enter_focus_mode()
@@ -1955,9 +1959,29 @@ class ToDoApp:
                 timer_widgets.append(timer_lbl)
                 self._timer_label_widget = timer_lbl
             else:
-                est = task.get("estimated_minutes", 0)
+                est     = task.get("estimated_minutes", 0)
+                elapsed = task.get("timer_elapsed_seconds", 0)
+                rem_sec = task.get("timer_remaining_seconds", 0)
+
+                # +5 button available even when inactive so time can be added after completion
+                add_btn = tk.Label(
+                    row, text="+5", bg=row_bg, fg=TIMER_COLOR,
+                    font=("Helvetica", 9), cursor="hand2", padx=2
+                )
+                add_btn.pack(side="right")
+                add_btn.bind("<Button-1>", lambda e, t=task: self._add_timer_time(t, 5))
+                add_btn.bind("<MouseWheel>", self._on_scroll)
+                timer_widgets.append(add_btn)
+
+                # Show elapsed/estimated when stopped mid-way, otherwise just estimated
+                if elapsed > 0 and rem_sec > 0:
+                    elapsed_min = max(1, round(elapsed / 60))
+                    display_text = f"⏱{elapsed_min}m/{est}m"
+                else:
+                    display_text = f"⏱{est}m"
+
                 timer_lbl = tk.Label(
-                    row, text=f"⏱{est}m", bg=row_bg, fg=DONE_COLOR,
+                    row, text=display_text, bg=row_bg, fg=DONE_COLOR,
                     font=("Helvetica", 9), cursor="hand2", padx=2
                 )
                 timer_lbl.pack(side="right")
